@@ -2,7 +2,7 @@
  * Shared types for decent-dora — DHCP for Decent AgentNet.
  *
  * Wire format: messages flow over Carrier text channels with the magic
- * prefix `DECENT_DORA:` followed by a JSON body. JSON keeps the
+ * prefix `DORA:` followed by a JSON body. JSON keeps the
  * protocol debuggable and easy to extend; the prefix keeps it
  * distinguishable from decentlan's base64 packet frames.
  *
@@ -13,7 +13,7 @@
  */
 
 /** Magic prefix on every DORA message. Plain ASCII; not valid base64. */
-export const DORA_PREFIX = "DECENT_DORA:";
+export const DORA_PREFIX = "DORA:";
 
 /**
  * Persisted record. `userid` is the primary key. `name` and `virtualIp`

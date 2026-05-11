@@ -1,4 +1,7 @@
-# decent-dora
+# dora
+
+Published as **`@decent/dora`** on npm.
+Source: `git@github.com:0xli/dora.git`.
 
 DHCP for Decent AgentNet, named after **DORA** — the four-step flow
 your WiFi router uses to hand out IPs:
@@ -13,6 +16,22 @@ your WiFi router uses to hand out IPs:
 One node on the agentnet runs the DORA daemon. New peers ask it for
 an IP + name + register their userid; everyone else looks up
 peers by name/userid/IP. Replaces the per-node `ipam.yaml` editing.
+
+## Runs as a normal user
+
+DORA does **not** need root / admin. It's a plain Carrier peer that
+listens for text messages and writes a YAML file in its config dir —
+no TUN device, no privileged sockets, no system services. Run it as
+yourself:
+
+```bash
+npm install -g @decent/dora    # (once published)
+dora --data-dir ~/.dora --verbose
+```
+
+This is intentional separation from decentlan (which DOES need root
+for TUN). DORA is small, stable, and safe to leave running on any
+always-on box you happen to have.
 
 ## How decentlan finds the server
 
