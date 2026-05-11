@@ -33,6 +33,48 @@ This is intentional separation from decentlan (which DOES need root
 for TUN). DORA is small, stable, and safe to leave running on any
 always-on box you happen to have.
 
+## Deployment flow
+
+DORA is **optional** in the decent network. Carrier peers that are
+happy talking by userid don't need it. DORA exists for the subset of
+users that want classic TCP/UDP-over-IP addressing through decentlan;
+those users need a way to agree on `userid ↔ ip` mappings, and DORA
+is the service that holds the map.
+
+Step-by-step:
+
+1. **Run dora on some always-on box.**
+   ```bash
+   dora --data-dir ~/.dora --verbose
+   ```
+   On startup it prints:
+   ```
+   dora identity: address=8Abcfxp4UgpXuL... userid=4G5utnVUeigyUgt...
+   ```
+   Copy the **address** (the longer string with the checksum) and
+   share it with whoever wants to use this DORA — same way you'd
+   share a Carrier friend address.
+
+2. **Each decentlan node sends a friend request to that address.**
+   This happens once per node. DORA auto-accepts every incoming
+   friend request — no manual approval, no waiting for the operator
+   to do `friend-accept` on the server side. That's the whole point
+   of being a public registry.
+
+3. **Once friended, the node knows DORA's userid** (the friend store
+   maps address → userid). The node puts that userid in its
+   `config.yaml` under `registry.userids` and from then on talks to
+   DORA over Carrier text messages.
+
+4. **Discover-Offer-Request-Acknowledge** plays out over Carrier:
+   the node sends a `register` op asking for an IP, DORA picks one
+   from its pool, the node uses it, and other nodes that ask DORA
+   for `lookup` see the mapping.
+
+If DORA goes offline, every node keeps working at its cached IP and
+new nodes fall back to a random IP in the subnet (APIPA style). No
+single-point-of-failure for already-connected peers.
+
 ## How decentlan finds the server
 
 The DORA server is just a Carrier peer. Decentlan addresses it by

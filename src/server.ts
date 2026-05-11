@@ -44,6 +44,26 @@ export class RegistryServer {
     if (this.isRunning) return;
     this.isRunning = true;
 
+    // DORA is a public service — accept every incoming friend request
+    // automatically. That's the whole point: an operator publishes the
+    // server's Carrier address, every decentlan node sends a friend
+    // request to it on startup, and the server says yes so the two can
+    // exchange register/lookup/list messages over Carrier.
+    //
+    // No anti-spam here in v0.1. If that becomes a problem we'll add a
+    // rate-limiter or a registration token; for now the trust model
+    // matches a public WiFi router that hands out DHCP leases to
+    // anything that asks.
+    this.peer.onFriendRequest(
+      (req: { pubkey: string; name?: string; hello?: string }) => {
+        const who = `${req.name || "(unnamed)"} ${req.pubkey.slice(0, 16)}...`;
+        this.log(`friend request from ${who} — auto-accepting`);
+        this.peer.acceptFriendRequest(req.pubkey).catch((err) => {
+          this.log(`auto-accept failed for ${who}: ${err}`);
+        });
+      }
+    );
+
     this.peer.onText((msg: { pubkey: string; text: string }) => {
       const req = decode(msg.text);
       if (!req) return; // not a registry message
@@ -52,7 +72,7 @@ export class RegistryServer {
       });
     });
 
-    this.log("registry server started");
+    this.log("dora server started — friend requests will auto-accept");
   }
 
   private async handle(fromUserid: string, req: RegistryRequest): Promise<void> {
