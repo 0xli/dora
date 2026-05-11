@@ -32,27 +32,40 @@ etc.) without dragging decentlan with it.
 
 ## Topology
 
+The registry **is a Carrier peer**, addressed by its userid — exactly
+the same way Carrier itself addresses bootstrap nodes (just with `host
++ port + pk` swapped for `userid`).
+
 ```
 +-------- decentlan node A --------+        +-------- decentlan node B --------+
 | agentnet daemon                  |        | agentnet daemon                  |
-|   - on start: query registry     |        |   - on start: query registry     |
-|     for full roster              |        |     for full roster              |
-|   - on friend event: lookup      |        |   - on friend event: lookup      |
+|   config.yaml:                   |        |   config.yaml:                   |
+|     registry.userids: [...]      |        |     registry.userids: [...]      |
+|                                  |        |                                  |
 | registry-client (carrier msg) ───+──┐  ┌──+ registry-client (carrier msg)    |
 +----------------------------------+  │  │  +----------------------------------+
                                       │  │
                                       ▼  ▼
                               +-- decent-registry node --+
                               | registry daemon          |
+                              |   - userid: 4G5utn...    |
                               |   - listens on carrier   |
                               |   - allocates IPs        |
                               |   - persists roster.yaml |
                               +--------------------------+
 ```
 
-The registry node is itself a Carrier peer — it has a userid and is
-friended by every node that uses it. There's nothing special about it
-infrastructurally; it just happens to run this service.
+A decentlan node:
+
+1. Tries each userid in `registry.userids` in order. First answer wins.
+2. If none answer within the timeout, **falls back to self-assigning
+   a random IP** in `fallbackSubnet` (default `10.86.0.0/16`). The
+   daemon keeps working; it just doesn't have a canonical roster of
+   peer names until the registry comes back. Same mental model as
+   APIPA / `169.254.0.0/16` when DHCP is offline.
+
+Multiple registries are allowed — the operator can run a hot standby
+or a regional pair without re-deploying client config when one dies.
 
 ## See
 

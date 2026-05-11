@@ -151,20 +151,72 @@ registry comes back; it can still reach peers it already knows.
 
 ## Configuration on decentlan side
 
-Decentlan's `config.yaml` gets one new field:
+The registry is a Carrier peer like any other. Decentlan addresses it
+by **userid only** — same way Carrier addresses bootstrap nodes (`host
++ port + pk` for them, `userid` for the registry). No DNS lookup, no
+hostname, no IP.
+
+`config.yaml` gets one new section:
 
 ```yaml
 registry:
-  enabled: true
-  userid: 4G5utnVUeigyUgtfRBGU62orNU3NZi7GFARH9755fymC  # the registry node
+  # Try these in order. First one that answers wins. Multiple userids
+  # let an operator run a hot standby or a regional pair without
+  # changing client config when one goes down. List can be empty.
+  userids:
+    - 4G5utnVUeigyUgtfRBGU62orNU3NZi7GFARH9755fymC
+
+  # Subnet from which to pick a random self-IP if no registry answers
+  # within the timeout. Skipped if at least one registry is reachable.
+  # Same /16 the daemon already uses.
+  fallbackSubnet: 10.86.0.0/16
+
+  # How long to wait for the first registry response before falling
+  # back to self-assignment. Default 10s.
+  fallbackTimeoutMs: 10000
 ```
 
-Decentlan auto-friends the registry node on first start, runs the
-initial `list`, populates its IPAM from the response, and stops
-requiring the operator to type `ipam assign` ever again.
+### Boot-time flow on a decentlan node
 
-`ipam assign` remains as a manual override for the small number of
-operators who want stricter control or who don't run a registry node.
+1. Start Peer, join network, announce self on DHT.
+2. For each `registry.userids` entry in order: open a Carrier text
+   channel, send `lookup by userid <own>`.
+3. **If a registry answers** with our record → use its `virtualIp`.
+   Subscribe via periodic `list` so we learn about new peers.
+4. **If a registry answers "not found"** → send `register` with our
+   preferred IP from `config.network.ip` (or omit it to let the
+   registry allocate one). Use the resulting IP.
+5. **If no registry answers within the fallback timeout** → pick a
+   random IP from `fallbackSubnet` (excluding `.0`, `.255`, and the
+   first `/24` reserved for infrastructure). Persist it locally so a
+   restart picks the same IP again. Surface a warning in the log.
+
+The fallback is the "WiFi router went offline" case — peers keep
+working at whatever IP they last had (or a fresh random one) and
+re-converge with the registry when it comes back. Same idea as
+APIPA/`169.254.0.0/16` but inside the agentnet subnet.
+
+### Why no auto-friend
+
+An earlier sketch had decentlan auto-friend the registry's userid on
+first start. Removed — friending is a trust decision and should be
+explicit. The operator runs `agentnet friend-request --address
+<registry-carrier-address>` once when standing up the network, same
+as for any other peer. After that the userid in `registry.userids`
+just routes traffic to an already-friended peer.
+
+### `ipam assign` after the registry exists
+
+`ipam assign` is unchanged — it writes a local record that always
+wins over registry data. Useful for:
+
+- pinning a peer to a specific IP regardless of what the registry
+  thinks;
+- working offline before the registry is reachable;
+- migrations away from a stale registry.
+
+In the steady state with a working registry, the operator should not
+need to run `ipam assign` at all.
 
 ## Why one designated node, not consensus
 

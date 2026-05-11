@@ -20,18 +20,25 @@ import {
 } from "./types.js";
 
 export interface RegistryClientOptions {
-  /** Userid of the registry node — set by the operator in config.yaml. */
-  registryUserid: string;
+  /** Userids of registries to try, in order. Same role as Carrier's
+   *  bootstrap-node list: addressed by userid only, first responder
+   *  wins, can be multiple for hot-standby / regional pairs. Empty
+   *  list = caller will rely on the fallback (`randomIpInSubnet`). */
+  registryUserids: string[];
   /** Send a text message to a Carrier peer. Decentlan supplies this. */
   sendText: (toUserid: string, text: string) => Promise<void>;
   /** Subscribe to incoming text messages. Decentlan supplies this. */
   onText: (handler: (fromUserid: string, text: string) => void) => void;
-  /** How long to wait for the registry to reply. Default 15s. */
+  /** How long to wait for each registry to reply before trying the next.
+   *  Default 10s. The total timeout per RPC is N * timeoutMs in the
+   *  worst case (all registries unreachable). */
   timeoutMs?: number;
 }
 
 export class RegistryClient {
   private opts: RegistryClientOptions;
+  /** Pending request lookup, keyed by `${registryUserid}|${opKey}`.
+   *  The op key strips `-ok` / `-err` so request and response match. */
   private pending: Map<string, (res: RegistryResponse) => void> = new Map();
   private subscribed = false;
 
@@ -44,17 +51,14 @@ export class RegistryClient {
     if (this.subscribed) return;
     this.subscribed = true;
     this.opts.onText((fromUserid, text) => {
-      if (fromUserid !== this.opts.registryUserid) return;
+      // Only consider responses from one of our configured registries.
+      if (!this.opts.registryUserids.includes(fromUserid)) return;
       const decoded = decode(text);
       if (!decoded) return;
-      // Match the response to whichever pending request is waiting.
-      // V0.1 doesn't include correlation IDs — we assume at most one
-      // pending request at a time per op type. Sufficient for the
-      // current call sites; revisit if we add overlapping queries.
-      const key = (decoded as RegistryResponse).op.replace(/-ok|-err/, "");
-      const waiter = this.pending.get(key);
+      const opKey = (decoded as RegistryResponse).op.replace(/-ok|-err/, "");
+      const waiter = this.pending.get(`${fromUserid}|${opKey}`);
       if (waiter) {
-        this.pending.delete(key);
+        this.pending.delete(`${fromUserid}|${opKey}`);
         waiter(decoded as RegistryResponse);
       }
     });
@@ -99,29 +103,96 @@ export class RegistryClient {
     throw new Error(`unexpected response op: ${res.op}`);
   }
 
+  /** Try each configured registry in order; return the first response.
+   *  Throws AllRegistriesUnavailableError only when every registry
+   *  either fails to send or times out. */
   private async exchange(req: RegistryRequest): Promise<RegistryResponse> {
     this.ensureSubscribed();
-    const key = req.op;
-    const timeoutMs = this.opts.timeoutMs ?? 15000;
+    const timeoutMs = this.opts.timeoutMs ?? 10000;
+    const userids = this.opts.registryUserids;
+    if (userids.length === 0) {
+      throw new AllRegistriesUnavailableError("no registry userids configured");
+    }
 
+    const errors: string[] = [];
+    for (const registryUserid of userids) {
+      try {
+        return await this.exchangeOne(req, registryUserid, timeoutMs);
+      } catch (err) {
+        errors.push(`${registryUserid.slice(0, 12)}...: ${(err as Error).message}`);
+      }
+    }
+    throw new AllRegistriesUnavailableError(
+      `all ${userids.length} registries unreachable: ${errors.join("; ")}`
+    );
+  }
+
+  private exchangeOne(
+    req: RegistryRequest,
+    registryUserid: string,
+    timeoutMs: number
+  ): Promise<RegistryResponse> {
+    const opKey = req.op;
+    const pendingKey = `${registryUserid}|${opKey}`;
     return new Promise<RegistryResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(key);
-        reject(new Error(`registry ${req.op} timed out after ${timeoutMs}ms`));
+        this.pending.delete(pendingKey);
+        reject(new Error(`timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
-      this.pending.set(key, (res) => {
+      this.pending.set(pendingKey, (res) => {
         clearTimeout(timer);
         resolve(res);
       });
 
-      this.opts
-        .sendText(this.opts.registryUserid, encode(req))
-        .catch((err) => {
-          clearTimeout(timer);
-          this.pending.delete(key);
-          reject(err);
-        });
+      this.opts.sendText(registryUserid, encode(req)).catch((err) => {
+        clearTimeout(timer);
+        this.pending.delete(pendingKey);
+        reject(err);
+      });
     });
   }
+}
+
+/** Thrown when none of the configured registries answered. Callers
+ *  catch this to know they should fall back to local self-assignment
+ *  (e.g. `randomIpInSubnet`). */
+export class AllRegistriesUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AllRegistriesUnavailableError";
+  }
+}
+
+/**
+ * Pick a random IP from a subnet for the fallback path. The first /24
+ * is reserved for infrastructure (registry node, future use), and the
+ * subnet's `.0`/`.255` boundaries are skipped.
+ *
+ * Decentlan should call this when `AllRegistriesUnavailableError`
+ * comes back from the client and the daemon has no cached IP yet.
+ * The chosen IP should be persisted locally so a restart picks the
+ * same one — otherwise a flapping registry causes IP churn.
+ */
+export function randomIpInSubnet(
+  subnetCidr: string = "10.86.0.0/16",
+  reservedFirstSlashTwentyFour: boolean = true
+): string {
+  const [base, prefixStr] = subnetCidr.split("/");
+  const prefix = parseInt(prefixStr, 10);
+  const [a, b, c, d] = base.split(".").map((p) => parseInt(p, 10));
+  if ([a, b, c, d].some((n) => Number.isNaN(n) || n < 0 || n > 255)) {
+    throw new Error(`invalid subnet: ${subnetCidr}`);
+  }
+  if (prefix !== 16) {
+    // Only /16 is implemented in v0.1; sufficient for decentlan's 10.86.0.0/16.
+    throw new Error(`only /16 subnets supported in v0.1, got /${prefix}`);
+  }
+  // Avoid .0 and .255 in each variable octet, and skip the first /24.
+  const minOctet3 = reservedFirstSlashTwentyFour ? 1 : 0;
+  const o3 = minOctet3 + Math.floor(Math.random() * (255 - minOctet3));
+  const o4 = 1 + Math.floor(Math.random() * 254);
+  return `${a}.${b}.${o3}.${o4}`;
+  // Intentionally ignores the literal base[2] and base[3] — for a /16,
+  // those bits are assigned-from, not part of the subnet identifier.
 }

@@ -3,7 +3,12 @@
  */
 
 export { RegistryServer, type RegistryServerOptions } from "./server.js";
-export { RegistryClient, type RegistryClientOptions } from "./client.js";
+export {
+  RegistryClient,
+  type RegistryClientOptions,
+  AllRegistriesUnavailableError,
+  randomIpInSubnet,
+} from "./client.js";
 export { RegistryStore } from "./store.js";
 export { IpAllocator, type AllocatorOptions } from "./allocator.js";
 export {
