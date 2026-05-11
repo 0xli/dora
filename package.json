@@ -1,0 +1,30 @@
+{
+  "name": "decent-registry",
+  "version": "0.1.0",
+  "description": "Naming + IP allocation service for Decent AgentNet",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "decent-registry": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "node --loader ts-node/esm src/index.ts",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@decentnetwork/peer": "../peer/packages/peer",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}

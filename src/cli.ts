@@ -1,0 +1,92 @@
+#!/usr/bin/env node
+
+/**
+ * decent-registry CLI — boots the registry server.
+ *
+ * Usage:
+ *   decent-registry --data-dir ~/.decent-registry [--range-start 10.86.1.10] [--verbose]
+ */
+
+import { resolve } from "path";
+import { homedir } from "os";
+import { mkdirSync } from "fs";
+import { Peer } from "@decentnetwork/peer";
+import { RegistryStore } from "./store.js";
+import { IpAllocator } from "./allocator.js";
+import { RegistryServer } from "./server.js";
+
+function arg(name: string, fallback?: string): string | undefined {
+  const i = process.argv.indexOf(`--${name}`);
+  if (i >= 0 && i + 1 < process.argv.length) return process.argv[i + 1];
+  return fallback;
+}
+
+function flag(name: string): boolean {
+  return process.argv.includes(`--${name}`);
+}
+
+async function main(): Promise<void> {
+  const dataDir = resolve(arg("data-dir", resolve(homedir(), ".decent-registry"))!);
+  mkdirSync(dataDir, { recursive: true });
+  const rosterFile = resolve(dataDir, "roster.yaml");
+  const keyFile = resolve(dataDir, "keypair.json");
+
+  const store = new RegistryStore(rosterFile);
+  const allocator = new IpAllocator(store, {
+    rangeStart: arg("range-start"),
+    rangeEnd: arg("range-end"),
+  });
+
+  // Bootstrap nodes — same default set as decentlan. Operators who want
+  // a private registry can edit this list or pass --bootstrap (not
+  // wired up yet in v0.1).
+  const DEFAULT_BOOTSTRAPS = [
+    { host: "47.100.103.201", port: 33445, pk: "CX1XH419p4xJ5SV4KvDxBeKYSRdMJW9QpdWJY8owUxHd" },
+    { host: "154.64.235.176", port: 33445, pk: "GdNtV2N74fZnLjhH7NhQ18nGdxb1k8jRM9dQaK7WnxmL" },
+    { host: "13.58.208.50", port: 33445, pk: "89vny8MrKdDKs7Uta9RdVmspPjnRMdwMmaiEW27pZ7gh" },
+    { host: "18.216.102.47", port: 33445, pk: "G5z8MqiNDFTadFUPfMdYsYtkUDbX5mNCMVHMZtsCnFeb" },
+    { host: "54.193.141.205", port: 33445, pk: "7TfZWZNV8vnBxxWzJXuvKgX2QyKkLpg2oXx3LQ5tg8LW" },
+  ];
+
+  const peer = await Peer.create({
+    keyFile,
+    compatibilityMode: "legacy",
+    bootstrapNodes: DEFAULT_BOOTSTRAPS,
+  });
+  await peer.start();
+  console.log(`registry identity: address=${peer.address()} userid=${peer.userid()}`);
+  console.log(`registry roster file: ${rosterFile}`);
+  console.log(`registry pool start: ${arg("range-start") ?? "10.86.1.10"} end: ${arg("range-end") ?? "10.86.254.254"}`);
+
+  await peer.joinNetwork();
+  await peer.announceSelf(15000).catch((err) => {
+    console.warn(`self-announce warning: ${(err as Error).message}`);
+  });
+
+  const server = new RegistryServer({
+    peer,
+    store,
+    allocator,
+    verbose: flag("verbose"),
+  });
+  server.start();
+
+  console.log("registry ready — clients should configure registry.userid in decentlan's config.yaml");
+
+  // Graceful shutdown.
+  const stop = async (): Promise<void> => {
+    console.log("\nshutting down registry");
+    await peer.stop();
+    process.exit(0);
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+
+  // Hold the process open.
+  await new Promise<never>(() => {});
+}
+
+main().catch((err) => {
+  console.error("registry failed:", err);
+  process.exit(1);
+});
