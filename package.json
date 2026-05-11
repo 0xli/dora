@@ -1,11 +1,11 @@
 {
-  "name": "decent-registry",
+  "name": "decent-dora",
   "version": "0.1.0",
-  "description": "Naming + IP allocation service for Decent AgentNet",
+  "description": "DORA — IP allocation + name service for Decent AgentNet (Discover, Offer, Request, Acknowledge)",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "decent-registry": "dist/cli.js"
+    "decent-dora": "dist/cli.js"
   },
   "engines": {
     "node": ">=20.0.0"

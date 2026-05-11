@@ -1,14 +1,19 @@
 /**
- * Shared types for the Decent Registry.
+ * Shared types for decent-dora — DHCP for Decent AgentNet.
  *
  * Wire format: messages flow over Carrier text channels with the magic
- * prefix `DECENT_REGISTRY:` followed by a JSON body. JSON keeps the
+ * prefix `DECENT_DORA:` followed by a JSON body. JSON keeps the
  * protocol debuggable and easy to extend; the prefix keeps it
  * distinguishable from decentlan's base64 packet frames.
+ *
+ * Named after DHCP's DORA handshake (Discover / Offer / Request /
+ * Acknowledge). In our case Discover + Offer are implicit (the client
+ * already knows the server's userid from config), so the wire ops are
+ * just Request and Acknowledge plus lookup/list helpers.
  */
 
-/** Magic prefix on every registry message. Plain ASCII; not valid base64. */
-export const REGISTRY_PREFIX = "DECENT_REGISTRY:";
+/** Magic prefix on every DORA message. Plain ASCII; not valid base64. */
+export const DORA_PREFIX = "DECENT_DORA:";
 
 /**
  * Persisted record. `userid` is the primary key. `name` and `virtualIp`
@@ -100,7 +105,7 @@ export type RegistryResponse =
  * Throws on serialization failure (e.g. circular reference).
  */
 export function encode(msg: RegistryRequest | RegistryResponse): string {
-  return REGISTRY_PREFIX + JSON.stringify(msg);
+  return DORA_PREFIX + JSON.stringify(msg);
 }
 
 /**
@@ -112,8 +117,8 @@ export function encode(msg: RegistryRequest | RegistryResponse): string {
 export function decode(
   text: string
 ): RegistryRequest | RegistryResponse | null {
-  if (!text.startsWith(REGISTRY_PREFIX)) return null;
-  const body = text.slice(REGISTRY_PREFIX.length);
+  if (!text.startsWith(DORA_PREFIX)) return null;
+  const body = text.slice(DORA_PREFIX.length);
   try {
     return JSON.parse(body) as RegistryRequest | RegistryResponse;
   } catch {

@@ -1,23 +1,23 @@
 /**
- * Public surface of decent-registry. Decentlan imports from here.
+ * Public surface of decent-dora. Decentlan imports from here.
  */
 
-export { RegistryServer, type RegistryServerOptions } from "./server.js";
+export { RegistryServer as DoraServer, type RegistryServerOptions as DoraServerOptions } from "./server.js";
 export {
-  RegistryClient,
-  type RegistryClientOptions,
+  RegistryClient as DoraClient,
+  type RegistryClientOptions as DoraClientOptions,
   AllRegistriesUnavailableError,
   randomIpInSubnet,
 } from "./client.js";
-export { RegistryStore } from "./store.js";
+export { RegistryStore as DoraStore } from "./store.js";
 export { IpAllocator, type AllocatorOptions } from "./allocator.js";
 export {
-  REGISTRY_PREFIX,
+  DORA_PREFIX,
   encode,
   decode,
-  type RegistryRecord,
-  type RegistryRequest,
-  type RegistryResponse,
+  type RegistryRecord as DoraRecord,
+  type RegistryRequest as DoraRequest,
+  type RegistryResponse as DoraResponse,
   type RegisterRequest,
   type RegisterOk,
   type RegisterErr,

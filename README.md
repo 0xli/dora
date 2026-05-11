@@ -1,73 +1,72 @@
-# decent-registry
+# decent-dora
 
-The naming + IP allocation service for the Decent AgentNet network.
+DHCP for Decent AgentNet, named after **DORA** — the four-step flow
+your WiFi router uses to hand out IPs:
 
-## What it is
+| step | who | what |
+|---|---|---|
+| **D**iscover | peer | "Is there a DORA server out there?" |
+| **O**ffer    | server | "Sure — try `10.86.1.42`." |
+| **R**equest  | peer | "I'll take it." |
+| **A**cknowledge | server | "Confirmed. It's yours." |
 
-One node on the decentlan network runs this daemon. Other nodes query it
-over Carrier to:
+One node on the agentnet runs the DORA daemon. New peers ask it for
+an IP + name + register their userid; everyone else looks up
+peers by name/userid/IP. Replaces the per-node `ipam.yaml` editing.
 
-- **register**: claim a virtual IP (or accept one the registry assigns)
-  alongside a human-readable name keyed by Carrier userid;
-- **lookup**: resolve `name → userid + ip`, `userid → name + ip`, or
-  `ip → name + userid`;
-- **list**: get the whole roster (small, fits in one message).
+## How decentlan finds the server
 
-This replaces the per-node `ipam.yaml` editing that previously required
-operators to copy userids around by hand. Adding a peer becomes: friend
-it on Carrier, the registry assigns its IP on first contact, all other
-peers learn about it from the registry.
+The DORA server is just a Carrier peer. Decentlan addresses it by
+its userid, the same way Carrier addresses bootstrap nodes — userid
+swapped in for `host+port+pk`. Multiple userids allowed (hot standby).
 
-## Why a separate project
+```yaml
+# decentlan config.yaml
+registry:
+  userids:
+    - 4G5utnVUeigyUgtfRBGU62orNU3NZi7GFARH9755fymC
 
-Decentlan is the *transport* — TUN, packet routing, ACL, the built-in
-CONNECT proxy. It's a leaf application on top of the
-`@decentnetwork/peer` SDK.
-
-The registry is a different concern — naming and address allocation —
-and it lives somewhere durable in the network (the operator's "router"
-node). Splitting it out keeps decentlan small and lets the registry
-evolve independently (blockchain-backed records later, multi-namespace,
-etc.) without dragging decentlan with it.
+  # If no server answers within this many ms, fall back to a random
+  # IP in the subnet (APIPA / 169.254.x.x style). The daemon stays
+  # functional; it just doesn't know peer names.
+  fallbackTimeoutMs: 10000
+  fallbackSubnet: 10.86.0.0/16
+```
 
 ## Topology
 
-The registry **is a Carrier peer**, addressed by its userid — exactly
-the same way Carrier itself addresses bootstrap nodes (just with `host
-+ port + pk` swapped for `userid`).
-
 ```
-+-------- decentlan node A --------+        +-------- decentlan node B --------+
-| agentnet daemon                  |        | agentnet daemon                  |
-|   config.yaml:                   |        |   config.yaml:                   |
-|     registry.userids: [...]      |        |     registry.userids: [...]      |
-|                                  |        |                                  |
-| registry-client (carrier msg) ───+──┐  ┌──+ registry-client (carrier msg)    |
-+----------------------------------+  │  │  +----------------------------------+
-                                      │  │
-                                      ▼  ▼
-                              +-- decent-registry node --+
-                              | registry daemon          |
-                              |   - userid: 4G5utn...    |
-                              |   - listens on carrier   |
-                              |   - allocates IPs        |
-                              |   - persists roster.yaml |
-                              +--------------------------+
++-- decentlan node A --+        +-- decentlan node B --+
+|  on start:           |        |  on start:           |
+|    ask DORA for IP   |        |    ask DORA for IP   |
+|    cache the roster  |        |    cache the roster  |
+|                      |        |                      |
+| dora-client ─────────+──┐  ┌──+ dora-client          |
++----------------------+  │  │  +----------------------+
+                          ▼  ▼
+                   +-- DORA server --+
+                   | userid: 4G5u... |
+                   | roster.yaml     |
+                   | IP allocator    |
+                   +-----------------+
 ```
 
-A decentlan node:
+DORA is a peer like any other — same `@decentnetwork/peer` SDK, same
+trust model (friend it before you trust its replies). Lose it: every
+client keeps working at its cached IP; new peers fall back to APIPA.
 
-1. Tries each userid in `registry.userids` in order. First answer wins.
-2. If none answer within the timeout, **falls back to self-assigning
-   a random IP** in `fallbackSubnet` (default `10.86.0.0/16`). The
-   daemon keeps working; it just doesn't have a canonical roster of
-   peer names until the registry comes back. Same mental model as
-   APIPA / `169.254.0.0/16` when DHCP is offline.
+## v0.1 scope
 
-Multiple registries are allowed — the operator can run a hot standby
-or a regional pair without re-deploying client config when one dies.
+- Carrier-text wire protocol: register / lookup / list
+  (the "Request → Acknowledge" half of DORA; the Discover-Offer half
+  is implicit because the client already knows the server's userid).
+- YAML roster persistence.
+- Linear IP allocator over a configurable range.
+- Multi-server failover in the client.
+- `randomIpInSubnet()` fallback when no server answers.
 
 ## See
 
-- [docs/DESIGN.md](docs/DESIGN.md) — protocol, record format, allocation policy.
-- Decent AgentNet PRD v0.4 §4.3 ("Decent IPAM, not literal DHCP first").
+- [docs/DESIGN.md](docs/DESIGN.md) — wire format, allocation policy,
+  auth model, decentlan integration notes.
+- Decent AgentNet PRD v0.4 §4.3.

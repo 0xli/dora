@@ -1,4 +1,4 @@
-# Decent Registry — design
+# decent-dora — design
 
 Status: design + skeleton. Implementation will follow once decentlan
 is stable enough that operators want to deploy the registry alongside
@@ -49,7 +49,7 @@ within a namespace (the registry rejects collisions).
 
 ## Protocol
 
-All messages are Carrier text messages prefixed with `DECENT_REGISTRY:`
+All messages are Carrier text messages prefixed with `DECENT_DORA:`
 so they don't collide with decentlan's packet frames (which are base64).
 Body is JSON.
 
@@ -57,17 +57,17 @@ Body is JSON.
 
 Client → registry:
 ```
-DECENT_REGISTRY:{"op":"register","userid":"...","name":"lan-snoopy","requestedIp":"10.86.1.10"}
+DECENT_DORA:{"op":"register","userid":"...","name":"lan-snoopy","requestedIp":"10.86.1.10"}
 ```
 
 Registry → client:
 ```
-DECENT_REGISTRY:{"op":"register-ok","record":{"userid":"...","name":"lan-snoopy","virtualIp":"10.86.1.10","registeredAt":"..."}}
+DECENT_DORA:{"op":"register-ok","record":{"userid":"...","name":"lan-snoopy","virtualIp":"10.86.1.10","registeredAt":"..."}}
 ```
 
 Or, on conflict:
 ```
-DECENT_REGISTRY:{"op":"register-err","reason":"name lan-snoopy is held by EjU8...","suggestion":"lan-snoopy-2"}
+DECENT_DORA:{"op":"register-err","reason":"name lan-snoopy is held by EjU8...","suggestion":"lan-snoopy-2"}
 ```
 
 If `requestedIp` is omitted, registry picks the next free IP in the
@@ -81,29 +81,29 @@ name/ip = treated as a rename request and either accepted or rejected.
 
 Client → registry:
 ```
-DECENT_REGISTRY:{"op":"lookup","by":"name","value":"proxy-macmini"}
+DECENT_DORA:{"op":"lookup","by":"name","value":"proxy-macmini"}
 ```
 `by` can be `userid`, `name`, or `ip`.
 
 Registry → client:
 ```
-DECENT_REGISTRY:{"op":"lookup-ok","record":{...}}
+DECENT_DORA:{"op":"lookup-ok","record":{...}}
 ```
 Or:
 ```
-DECENT_REGISTRY:{"op":"lookup-err","reason":"no record for name 'proxy-macmini'"}
+DECENT_DORA:{"op":"lookup-err","reason":"no record for name 'proxy-macmini'"}
 ```
 
 ### list
 
 Client → registry:
 ```
-DECENT_REGISTRY:{"op":"list"}
+DECENT_DORA:{"op":"list"}
 ```
 
 Registry → client:
 ```
-DECENT_REGISTRY:{"op":"list-ok","records":[ {...}, {...}, ... ]}
+DECENT_DORA:{"op":"list-ok","records":[ {...}, {...}, ... ]}
 ```
 
 Capped at ~50 records per response (one Carrier message budget). For
