@@ -48,10 +48,21 @@ async function main(): Promise<void> {
     { host: "54.193.141.205", port: 33445, pk: "7TfZWZNV8vnBxxWzJXuvKgX2QyKkLpg2oXx3LQ5tg8LW" },
   ];
 
+  // Express nodes deliver friend-requests for a recipient that is
+  // offline at the moment the request is sent. The dora server also
+  // needs to fetch pending requests from express on startup — without
+  // these, a decentlan client's `agentnet friend-request` flow
+  // appears to succeed but the dora-side onFriendRequest handler
+  // never fires.
+  const DEFAULT_EXPRESSES = [
+    { host: "lens.beagle.chat", port: 443, pk: "ECbs4GxwGzxGerNkmqDJFibEmevu8jAXqAZtikccvD95" },
+  ];
+
   const peer = await Peer.create({
     keyFile,
     compatibilityMode: "legacy",
     bootstrapNodes: DEFAULT_BOOTSTRAPS,
+    expressNodes: DEFAULT_EXPRESSES,
   });
   await peer.start();
   console.log(`registry identity: address=${peer.address()} userid=${peer.userid()}`);

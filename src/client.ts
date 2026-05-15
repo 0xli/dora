@@ -67,6 +67,9 @@ export class RegistryClient {
   async register(opts: {
     userid: string;
     name: string;
+    /** Full Carrier address with nospam + checksum. Needed so other
+     *  peers fetched from `list()` can be sent a friend-request. */
+    address?: string;
     requestedIp?: string;
     replace?: boolean;
   }): Promise<RegistryRecord> {
@@ -74,6 +77,7 @@ export class RegistryClient {
       op: "register",
       userid: opts.userid,
       name: opts.name,
+      address: opts.address,
       requestedIp: opts.requestedIp,
       replace: opts.replace,
     });

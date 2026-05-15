@@ -172,6 +172,11 @@ export class RegistryServer {
       virtualIp: ip,
       registeredAt: existing?.registeredAt ?? now,
       lastSeenAt: now,
+      // Carry forward whichever address we have. Newer clients send
+      // their full Carrier address (with nospam + checksum); older
+      // ones may not, in which case we preserve any previously-stored
+      // value so the roster doesn't lose it on re-registration.
+      address: req.address ?? existing?.address,
     };
     this.store.put(record);
     this.log(`register: ${record.name} (${record.userid.slice(0, 12)}...) -> ${record.virtualIp}`);

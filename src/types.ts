@@ -25,6 +25,12 @@ export interface RegistryRecord {
   virtualIp: string; // IPv4, e.g. "10.86.1.10"
   registeredAt: string; // ISO 8601
   lastSeenAt?: string; // ISO 8601, updated on heartbeat or re-register
+  /** Full Carrier address (base58 with nospam + checksum) that other
+   *  peers need to call `sendFriendRequest`. Userid alone is the bare
+   *  pubkey-derived id and can't be used as a friend-request target.
+   *  Optional only for backward-compat with older records; newly-
+   *  registered peers always supply it. */
+  address?: string;
 }
 
 /** Operation discriminator on the wire. */
@@ -43,6 +49,10 @@ export interface RegisterRequest {
   op: "register";
   userid: string;
   name: string;
+  /** Full Carrier address (base58 w/ nospam + checksum). Required so
+   *  the registry can include it in roster responses; without it,
+   *  other peers can't send this peer a friend-request. */
+  address?: string;
   /** Preferred IP; if omitted or in use, registry allocates. */
   requestedIp?: string;
   /** When true, an existing record for this userid will be overwritten
