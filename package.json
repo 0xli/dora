@@ -12,7 +12,7 @@
     }
   },
   "bin": {
-    "dora": "./dist/cli.js"
+    "dora": "dist/cli.js"
   },
   "files": [
     "dist",
