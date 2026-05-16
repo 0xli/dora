@@ -1,0 +1,31 @@
+                    GNU GENERAL PUBLIC LICENSE
+                       Version 3, 29 June 2007
+
+ Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+This package is licensed under the GNU General Public License v3.0 or any
+later version. You may redistribute and/or modify it under the terms of
+the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any
+later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+Public License for more details.
+
+The full text of the GPL-3.0-or-later license is available at
+<https://www.gnu.org/licenses/gpl-3.0.html>.
+
+This package derives in part from the Elastos.NET.Carrier.Native.SDK,
+which itself derives from the toxcore project — both also licensed under
+GPL-3.0-or-later. The protocol-level parity with those upstreams is
+intentional; the wire format implementations in `compat/` reference the
+toxcore C source by file:line in their top comments.
+
+  - Elastos.NET.Carrier.Native.SDK:
+    https://github.com/elastos/Elastos.NET.Carrier.Native.SDK
+  - c-toxcore:
+    https://github.com/TokTok/c-toxcore

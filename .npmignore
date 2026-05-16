@@ -1,0 +1,20 @@
+# Defensive — `files` in package.json is the actual whitelist. This
+# file just makes sure that even if someone adds a file to a path
+# inside an included directory (e.g. dist/), source / maps don't
+# leak into the published tarball.
+src/
+test/
+**/*.ts.map
+**/*.js.map
+**/*.d.ts.map
+*.tsbuildinfo
+tsconfig*.json
+.git
+.github
+.vscode
+.idea
+node_modules
+coverage
+.eslintrc*
+.prettierrc*
+docs/DESIGN.md

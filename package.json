@@ -3,22 +3,64 @@
   "version": "0.1.0",
   "description": "DORA — DHCP-style IP + name service for Decent AgentNet (Discover, Offer, Request, Acknowledge). Runs as a normal Carrier peer; no admin required.",
   "type": "module",
-  "main": "dist/index.js",
-  "bin": {
-    "dora": "dist/cli.js"
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
+  "bin": {
+    "dora": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "docs/INSTALL.md",
+    "docs/CONFIGURATION.md"
+  ],
+  "sideEffects": false,
   "engines": {
     "node": ">=20.0.0"
   },
+  "keywords": [
+    "decent",
+    "decentnet",
+    "dora",
+    "dhcp",
+    "ip-allocation",
+    "name-service",
+    "carrier",
+    "p2p",
+    "agentnet",
+    "vpn",
+    "registry"
+  ],
+  "license": "GPL-3.0-or-later",
+  "author": "Decent Network contributors",
+  "homepage": "https://github.com/0xli/dora#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xli/dora.git"
+  },
+  "bugs": {
+    "url": "https://github.com/0xli/dora/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && chmod +x dist/cli.js",
+    "clean": "rm -rf dist",
     "dev": "node --loader ts-node/esm src/index.ts",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "prepublishOnly": "npm run clean && npm run build && npm run typecheck"
   },
   "dependencies": {
-    "@decentnetwork/peer": "../peer/packages/peer",
+    "@decentnetwork/peer": "^0.1.0",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {
