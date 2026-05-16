@@ -1,4 +1,4 @@
-# Publishing `@decent/dora` to npm
+# Publishing `@decentnetwork/dora` to npm
 
 Internal release checklist. Not shipped to consumers (excluded by
 the package's `files` field and `.npmignore`).
@@ -6,9 +6,9 @@ the package's `files` field and `.npmignore`).
 ## One-time setup
 
 ```bash
-npm login                          # log in as the @decent org owner
+npm login                          # log in as the @decentnetwork org owner
 npm whoami                         # confirm
-npm access ls-packages --json | jq '.["@decent/dora"]'   # confirm publish rights
+npm access ls-packages --json | jq '.["@decentnetwork/dora"]'   # confirm publish rights
 ```
 
 ## Pre-publish checks
@@ -67,16 +67,16 @@ npm publish
    ```bash
    cd /tmp && rm -rf test-install && mkdir test-install && cd test-install
    npm init -y
-   npm install @decent/dora@latest
-   ls node_modules/@decent/dora    # should match the file list above
+   npm install @decentnetwork/dora@latest
+   ls node_modules/@decentnetwork/dora    # should match the file list above
    ```
 
 ## Yanking a bad release
 
 ```bash
-npm deprecate @decent/dora@<version> "reason"
+npm deprecate @decentnetwork/dora@<version> "reason"
 # or hard:
-npm unpublish @decent/dora@<version>      # within 72h of publish only
+npm unpublish @decentnetwork/dora@<version>      # within 72h of publish only
 ```
 
 Then publish a `+1` patch with the fix.

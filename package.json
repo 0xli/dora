@@ -1,5 +1,5 @@
 {
-  "name": "@decent/dora",
+  "name": "@decentnetwork/dora",
   "version": "0.1.0",
   "description": "DORA — DHCP-style IP + name service for Decent AgentNet (Discover, Offer, Request, Acknowledge). Runs as a normal Carrier peer; no admin required.",
   "type": "module",

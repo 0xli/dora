@@ -1,9 +1,9 @@
-# Installing `@decent/dora`
+# Installing `@decentnetwork/dora`
 
 `dora` is a name + IP allocation service for the Decent AgentNet
 virtual LAN. It runs as a normal user-space process on any single
 machine in the network — there is one `dora` server per
-agentnet, and every peer (every node running `decent-agentnet`)
+agentnet, and every peer (every node running `@decentnetwork/lan`)
 points at its userid. No root, no firewall changes, no public IP.
 
 ## Requirements
@@ -16,7 +16,7 @@ points at its userid. No root, no firewall changes, no public IP.
 ## Install
 
 ```bash
-npm install -g @decent/dora
+npm install -g @decentnetwork/dora
 ```
 
 This installs the `dora` command on `$PATH`. Confirm:
@@ -26,7 +26,7 @@ dora --help
 ```
 
 (There is also a programmatic API — `import { DoraServer, DoraClient }
-from "@decent/dora"` — used by `decent-agentnet`. Most operators don't
+from "@decentnetwork/dora"` — used by `@decentnetwork/lan`. Most operators don't
 need it; the CLI is the supported surface.)
 
 ## Run the server
@@ -55,7 +55,7 @@ Background-mode launch is up to you — `systemd`, `launchd`, `tmux`,
 
 ## Use from a decentlan client
 
-On every other machine running `decent-agentnet`:
+On every other machine running `@decentnetwork/lan`:
 
 ```bash
 agentnet friend-request --address <dora's address>     # one-time
@@ -89,7 +89,7 @@ Back these up if dora's data dir matters to you.
 
 ## Upgrading
 
-`npm install -g @decent/dora@latest`, then restart the process.
+`npm install -g @decentnetwork/dora@latest`, then restart the process.
 The data dir is preserved across upgrades; identity is never
 rotated unless you delete `keypair.json`.
 

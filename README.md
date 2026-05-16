@@ -1,6 +1,6 @@
 # dora
 
-Published as **`@decent/dora`** on npm.
+Published as **`@decentnetwork/dora`** on npm.
 Source: `git@github.com:0xli/dora.git`.
 
 DHCP for Decent AgentNet, named after **DORA** — the four-step flow
@@ -25,7 +25,7 @@ no TUN device, no privileged sockets, no system services. Run it as
 yourself:
 
 ```bash
-npm install -g @decent/dora    # (once published)
+npm install -g @decentnetwork/dora    # (once published)
 dora --data-dir ~/.dora --verbose
 ```
 
