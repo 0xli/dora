@@ -3,7 +3,7 @@
 `dora` is a name + IP allocation service for the Decent AgentNet
 virtual LAN. It runs as a normal user-space process on any single
 machine in the network — there is one `dora` server per
-agentnet, and every peer (every node running `@decentnetwork/vlan`)
+agentnet, and every peer (every node running `@decentnetwork/lan`)
 points at its userid. No root, no firewall changes, no public IP.
 
 ## Requirements
@@ -26,7 +26,7 @@ dora --help
 ```
 
 (There is also a programmatic API — `import { DoraServer, DoraClient }
-from "@decentnetwork/dora"` — used by `@decentnetwork/vlan`. Most operators don't
+from "@decentnetwork/dora"` — used by `@decentnetwork/lan`. Most operators don't
 need it; the CLI is the supported surface.)
 
 ## Run the server
@@ -55,7 +55,7 @@ Background-mode launch is up to you — `systemd`, `launchd`, `tmux`,
 
 ## Use from a decentlan client
 
-On every other machine running `@decentnetwork/vlan`:
+On every other machine running `@decentnetwork/lan`:
 
 ```bash
 agentnet friend-request --address <dora's address>     # one-time

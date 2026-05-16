@@ -100,5 +100,5 @@ goes down; rosters drift apart unless you periodically copy
 - [`@decentnetwork/peer`](https://www.npmjs.com/package/@decentnetwork/peer) —
   the underlying Carrier SDK; flags like `DECENT_DEBUG=1` apply
   to dora's process too.
-- [@decentnetwork/vlan](https://www.npmjs.com/package/@decentnetwork/vlan) —
+- [@decentnetwork/lan](https://www.npmjs.com/package/@decentnetwork/lan) —
   the client side that consumes dora's roster.
