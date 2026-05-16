@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 
 /**
- * decent-registry CLI — boots the registry server.
+ * dora CLI — boots the dora server (name + IP allocation
+ * registry for a Decent Network virtual LAN).
  *
  * Usage:
- *   decent-registry --data-dir ~/.decent-registry [--range-start 10.86.1.10] [--verbose]
+ *   dora [--data-dir ~/.dora] [--range-start 10.86.1.10] [--verbose]
  */
 
 import { resolve } from "path";
 import { homedir } from "os";
-import { mkdirSync } from "fs";
+import { existsSync, mkdirSync } from "fs";
 import { Peer } from "@decentnetwork/peer";
 import { RegistryStore } from "./store.js";
 import { IpAllocator } from "./allocator.js";
@@ -25,8 +26,28 @@ function flag(name: string): boolean {
   return process.argv.includes(`--${name}`);
 }
 
+/**
+ * Pick the default data dir. Prefers ~/.dora (matches the package
+ * name), but falls through to ~/.decent-registry if the legacy
+ * path exists and ~/.dora doesn't — the project was originally
+ * called "decent-registry" before being renamed, and we don't want
+ * an upgrade to silently abandon an operator's identity / roster.
+ */
+function defaultDataDir(): string {
+  const modern = resolve(homedir(), ".dora");
+  const legacy = resolve(homedir(), ".decent-registry");
+  if (!existsSync(modern) && existsSync(legacy)) return legacy;
+  return modern;
+}
+
 async function main(): Promise<void> {
-  const dataDir = resolve(arg("data-dir", resolve(homedir(), ".decent-registry"))!);
+  // Default data-dir is ~/.dora (matches the package name). For
+  // backward compat: if ~/.dora doesn't exist but the legacy
+  // ~/.decent-registry does (we were called "decent-registry"
+  // before being renamed to dora), use the legacy path so an
+  // upgrading operator keeps their identity, roster, and friend
+  // store without manual migration.
+  const dataDir = resolve(arg("data-dir", defaultDataDir())!);
   mkdirSync(dataDir, { recursive: true });
   const rosterFile = resolve(dataDir, "roster.yaml");
   const keyFile = resolve(dataDir, "keypair.json");

@@ -11,7 +11,7 @@ See [`INSTALL.md`](INSTALL.md) for first-time setup.
 
 | flag | default | what it does |
 |---|---|---|
-| `--data-dir <path>` | `~/.decent-registry` | Holds the Carrier keypair, the friend store, and `roster.yaml`. **The identity in this dir IS the dora server's public name** — keep it stable. |
+| `--data-dir <path>` | `~/.dora` (or legacy `~/.decent-registry` if it exists from a pre-rename install) | Holds the Carrier keypair, the friend store, and `roster.yaml`. **The identity in this dir IS the dora server's public name** — keep it stable. |
 | `--range-start <ip>` | `10.86.1.10` | First IP the allocator hands out to a fresh peer. |
 | `--range-end <ip>` | `10.86.254.254` | Last IP. Must be in the same /16 as `--range-start`. |
 | `--verbose` | off | Log every operation. Useful while bringing a network up; noisy in steady state. |

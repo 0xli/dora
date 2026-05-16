@@ -36,11 +36,11 @@ one that's always on — a NAS, VPS, Mac mini, etc. — but it doesn't
 have to be public-IP'd; Carrier handles NAT traversal):
 
 ```bash
-dora --data-dir ~/.dora-server --verbose
+dora --data-dir ~/.dora --verbose
 ```
 
 On first run dora generates a Carrier keypair in
-`~/.dora-server/keypair.json` and prints its identity:
+`~/.dora/keypair.json` and prints its identity:
 
 ```
 registry identity: address=Jt7w1pKkyLT5GVue9h6ZPkjg1EeuuTbD6JVSLycXLsdm6nvBGSUd userid=98rsHv17h8G6AP9RagyrBiT1kmw4cn8MFPEembS6ZVjv
@@ -81,7 +81,7 @@ Back these up if dora's data dir matters to you.
 ## CLI flags
 
 ```
---data-dir <path>      Where to store identity + roster (default: ~/.decent-registry)
+--data-dir <path>      Where to store identity + roster (default: ~/.dora (or legacy ~/.decent-registry if present))
 --range-start <ip>     First IP in the allocation pool (default: 10.86.1.10)
 --range-end <ip>       Last IP in the pool (default: 10.86.254.254)
 --verbose              Log every register/lookup/list operation
