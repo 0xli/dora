@@ -32,6 +32,7 @@ export class RegistryServer {
   private allocator: IpAllocator;
   private verbose: boolean;
   private isRunning = false;
+  private kickFriendsTimer: NodeJS.Timeout | null = null;
 
   constructor(opts: RegistryServerOptions) {
     this.peer = opts.peer;
@@ -72,10 +73,42 @@ export class RegistryServer {
       });
     });
 
+    // Aggressively re-establish Carrier sessions with every persisted
+    // friend on startup. Without this, dora's friends.json view of a
+    // peer can stay "offline" indefinitely even after the peer's
+    // daemon is up and pings dora as a friend — asymmetric session
+    // state. Subsequent sendText replies fail silently because dora
+    // thinks the peer is unreachable. Kicking on a 8s cadence is the
+    // same pattern decentlan uses; it's a no-op for already-online
+    // friends and the SDK swallows the "offline" error internally.
+    this.kickFriendsTimer = setInterval(() => {
+      for (const f of this.peer.friends()) {
+        const target = f.userid ?? f.pubkey;
+        if (!target) continue;
+        // sendText("") triggers #initiateSession in the SDK; we
+        // ignore errors because we expect them for genuinely-offline
+        // friends.
+        this.peer.sendText(target, "").catch(() => undefined);
+      }
+    }, 8000);
+    this.kickFriendsTimer.unref?.();
+    // Run once immediately so we don't wait 8s for the first kick.
+    setTimeout(() => {
+      for (const f of this.peer.friends()) {
+        const target = f.userid ?? f.pubkey;
+        if (target) this.peer.sendText(target, "").catch(() => undefined);
+      }
+    }, 1000);
+
     this.log("dora server started — friend requests will auto-accept");
   }
 
   private async handle(fromUserid: string, req: RegistryRequest): Promise<void> {
+    // TEMP: always-on debug to diagnose CN's list-timeout — drop
+    // me when CN works.
+    process.stderr.write(
+      `[dora-debug] handle op=${req.op} from=${fromUserid.slice(0, 12)} at=${new Date().toISOString()}\n`
+    );
     let response: RegistryResponse;
 
     switch (req.op) {
@@ -85,18 +118,38 @@ export class RegistryServer {
       case "lookup":
         response = this.handleLookup(req);
         break;
-      case "list":
-        response = { op: "list-ok", records: this.store.list() };
+      case "list": {
+        // Trim records to the fields the client actually consumes
+        // (userid, name, virtualIp, address). registeredAt and
+        // lastSeenAt save ~80 bytes per record; with 5-10 peers
+        // that's the difference between fitting in Carrier's
+        // 1372-byte text-message limit and not. Without this
+        // trimming, large rosters timeout on the client side
+        // because the message gets dropped at the SDK layer.
+        const trimmed = this.store.list().map((r) => ({
+          userid: r.userid,
+          name: r.name,
+          virtualIp: r.virtualIp,
+          address: r.address,
+        }));
+        response = { op: "list-ok", records: trimmed as RegistryRecord[] };
         break;
+      }
       default:
         // Future ops we don't know yet — silently ignore so old servers
         // don't reject newer clients.
         return;
     }
 
+    const encoded = encode(response);
+    process.stderr.write(
+      `[dora-debug] send ${response.op} to=${fromUserid.slice(0, 12)} bytes=${Buffer.byteLength(encoded, "utf-8")}\n`
+    );
     try {
-      await this.peer.sendText(fromUserid, encode(response));
+      await this.peer.sendText(fromUserid, encoded);
+      process.stderr.write(`[dora-debug] send ${response.op} to=${fromUserid.slice(0, 12)} OK\n`);
     } catch (err) {
+      process.stderr.write(`[dora-debug] send ${response.op} to=${fromUserid.slice(0, 12)} ERR: ${err}\n`);
       this.log(`reply to ${fromUserid.slice(0, 12)} failed: ${err}`);
     }
   }

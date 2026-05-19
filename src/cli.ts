@@ -10,11 +10,76 @@
 
 import { resolve } from "path";
 import { homedir } from "os";
-import { existsSync, mkdirSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  openSync,
+  closeSync,
+  readFileSync,
+  writeFileSync,
+  unlinkSync,
+} from "fs";
 import { Peer } from "@decentnetwork/peer";
 import { RegistryStore } from "./store.js";
 import { IpAllocator } from "./allocator.js";
 import { RegistryServer } from "./server.js";
+
+/**
+ * Acquire a pidfile-based single-instance lock for the given data-dir.
+ *
+ * Two dora servers sharing a data-dir share the keypair, so they
+ * both register the same Carrier userid. The Carrier network
+ * routes friend-traffic to whichever of them connected last —
+ * the symptoms on the client side are dora flapping
+ * online/offline and roster fetches randomly timing out. Detecting
+ * the duplicate at startup and refusing to launch is cleaner than
+ * letting the operator discover it via failed pings.
+ *
+ * Stale-pidfile handling: if the pidfile exists but the recorded
+ * PID isn't running, the lock is treated as released (the previous
+ * server died without cleanup). We don't try to use flock/fcntl
+ * locks here because the cross-platform story for those is messy
+ * — the pidfile + liveness check covers the realistic mistake
+ * (operator double-clicks the launcher) without dragging in extra
+ * dependencies.
+ */
+function acquireLock(dataDir: string): { release: () => void } {
+  const lockFile = resolve(dataDir, "dora.pid");
+  if (existsSync(lockFile)) {
+    const raw = readFileSync(lockFile, "utf-8").trim();
+    const pid = Number.parseInt(raw, 10);
+    if (Number.isFinite(pid) && pid > 0 && pid !== process.pid) {
+      try {
+        process.kill(pid, 0); // probe; throws if dead
+        console.error(
+          `dora: another instance is already running for ${dataDir} (pid ${pid}).`
+        );
+        console.error(
+          `If you're certain it's dead, remove ${lockFile} and retry.`
+        );
+        process.exit(1);
+      } catch {
+        // Process not alive — stale pidfile, take over.
+        console.warn(
+          `dora: stale lock from pid ${pid}, taking over.`
+        );
+      }
+    }
+  }
+  writeFileSync(lockFile, String(process.pid));
+  // Best-effort touch so a `chmod`-restricted lockFile doesn't
+  // wedge subsequent startups silently.
+  closeSync(openSync(lockFile, "r"));
+  const release = (): void => {
+    try {
+      const raw = readFileSync(lockFile, "utf-8").trim();
+      if (Number.parseInt(raw, 10) === process.pid) unlinkSync(lockFile);
+    } catch {
+      // already gone; no-op
+    }
+  };
+  return { release };
+}
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -49,6 +114,7 @@ async function main(): Promise<void> {
   // store without manual migration.
   const dataDir = resolve(arg("data-dir", defaultDataDir())!);
   mkdirSync(dataDir, { recursive: true });
+  const lock = acquireLock(dataDir);
   const rosterFile = resolve(dataDir, "roster.yaml");
   const keyFile = resolve(dataDir, "keypair.json");
 
@@ -108,11 +174,19 @@ async function main(): Promise<void> {
   // Graceful shutdown.
   const stop = async (): Promise<void> => {
     console.log("\nshutting down registry");
-    await peer.stop();
+    try {
+      await peer.stop();
+    } finally {
+      lock.release();
+    }
     process.exit(0);
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
+  // Best-effort cleanup on unhandled exit paths (uncaught exception,
+  // process.exit elsewhere). The lock-acquire stale check covers
+  // crashes that don't reach this handler, so this is just polish.
+  process.on("exit", () => lock.release());
 
   // Hold the process open.
   await new Promise<never>(() => {});
