@@ -25,25 +25,83 @@ import { IpAllocator } from "./allocator.js";
 import { RegistryServer } from "./server.js";
 
 /**
- * Acquire a pidfile-based single-instance lock for the given data-dir.
+ * Scan the OS process table for ANY other node process whose argv
+ * mentions the same data-dir. This catches the case the pidfile
+ * alone can't: a pre-lock-aware dora binary (anything <0.1.1) is
+ * still running and silently competing for the Carrier identity.
+ * It doesn't create the pidfile, so the pidfile check looks clean,
+ * but two processes are running.
+ *
+ * Returns an array of PIDs found (excluding our own). Empty list
+ * means we're clear to launch.
+ *
+ * Implementation note: shells out to `ps -ewwo pid,args` (BSD/macOS)
+ * or `ps -eo pid,args` (Linux). Both flags work on both systems —
+ * `-ww` widens output so we don't truncate the long --data-dir path.
+ * If the scan fails for any reason (unusual /proc, missing ps), we
+ * skip the check rather than blocking startup; the pidfile path
+ * still provides the common-case guarantee.
+ */
+function findCompetingDoraProcesses(dataDir: string): number[] {
+  const { execSync } = require("child_process") as typeof import("child_process");
+  let out = "";
+  try {
+    out = execSync("ps -e -o pid=,args= -ww", {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return []; // ps failed — skip, fall through to pidfile-only check
+  }
+  const pids: number[] = [];
+  for (const line of out.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const m = trimmed.match(/^(\d+)\s+(.+)$/);
+    if (!m) continue;
+    const pid = Number.parseInt(m[1], 10);
+    const args = m[2];
+    if (pid === process.pid) continue;
+    // Match dora process by argv: must contain "dora" somewhere
+    // (binary path or "cli.js") AND the same data-dir literal.
+    // Heuristic but effective — we ship a single CLI script named
+    // cli.js / dora; an operator's unrelated script that happens to
+    // contain `~/.dora-server-local` in its argv would also match
+    // but is exceedingly unlikely.
+    if (!/\b(dora|cli\.js)\b/i.test(args)) continue;
+    if (!args.includes(dataDir)) continue;
+    pids.push(pid);
+  }
+  return pids;
+}
+
+/**
+ * Acquire a single-instance lock for the given data-dir. Two layers:
+ *
+ *   1. argv scan via `ps`. Catches duplicates even when one of them
+ *      is running a pre-lock-aware binary (0.1.0 or earlier).
+ *   2. pidfile. Standard liveness probe with stale-cleanup; cheaper
+ *      than the scan and the layer that defends against same-binary
+ *      duplicate launches.
  *
  * Two dora servers sharing a data-dir share the keypair, so they
- * both register the same Carrier userid. The Carrier network
- * routes friend-traffic to whichever of them connected last —
- * the symptoms on the client side are dora flapping
- * online/offline and roster fetches randomly timing out. Detecting
- * the duplicate at startup and refusing to launch is cleaner than
- * letting the operator discover it via failed pings.
- *
- * Stale-pidfile handling: if the pidfile exists but the recorded
- * PID isn't running, the lock is treated as released (the previous
- * server died without cleanup). We don't try to use flock/fcntl
- * locks here because the cross-platform story for those is messy
- * — the pidfile + liveness check covers the realistic mistake
- * (operator double-clicks the launcher) without dragging in extra
- * dependencies.
+ * both register the same Carrier userid. The Carrier network routes
+ * friend-traffic to whichever connected last — symptoms on the
+ * client side are dora flapping online/offline and roster fetches
+ * randomly timing out.
  */
 function acquireLock(dataDir: string): { release: () => void } {
+  const competing = findCompetingDoraProcesses(dataDir);
+  if (competing.length > 0) {
+    console.error(
+      `dora: another dora process is already running for ${dataDir} (pid ${competing.join(", ")}).`
+    );
+    console.error(
+      `Stop it first (e.g. 'kill ${competing[0]}') or pick a different --data-dir.`
+    );
+    process.exit(1);
+  }
+
   const lockFile = resolve(dataDir, "dora.pid");
   if (existsSync(lockFile)) {
     const raw = readFileSync(lockFile, "utf-8").trim();
@@ -51,18 +109,16 @@ function acquireLock(dataDir: string): { release: () => void } {
     if (Number.isFinite(pid) && pid > 0 && pid !== process.pid) {
       try {
         process.kill(pid, 0); // probe; throws if dead
+        // We'd reach this branch only if argv scan missed the
+        // process (e.g. its argv was rewritten or ps was unavailable).
+        // Be conservative: refuse rather than racing.
         console.error(
-          `dora: another instance is already running for ${dataDir} (pid ${pid}).`
-        );
-        console.error(
-          `If you're certain it's dead, remove ${lockFile} and retry.`
+          `dora: pidfile still owned by live pid ${pid} for ${dataDir}.`
         );
         process.exit(1);
       } catch {
         // Process not alive — stale pidfile, take over.
-        console.warn(
-          `dora: stale lock from pid ${pid}, taking over.`
-        );
+        console.warn(`dora: stale lock from pid ${pid}, taking over.`);
       }
     }
   }
