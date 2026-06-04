@@ -19,6 +19,7 @@ import {
   writeFileSync,
   unlinkSync,
 } from "fs";
+import { execSync } from "child_process";
 import { Peer } from "@decentnetwork/peer";
 import { RegistryStore } from "./store.js";
 import { IpAllocator } from "./allocator.js";
@@ -43,7 +44,6 @@ import { RegistryServer } from "./server.js";
  * still provides the common-case guarantee.
  */
 function findCompetingDoraProcesses(dataDir: string): number[] {
-  const { execSync } = require("child_process") as typeof import("child_process");
   let out = "";
   try {
     out = execSync("ps -e -o pid=,args= -ww", {
