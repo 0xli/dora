@@ -161,7 +161,86 @@ function defaultDataDir(): string {
   return modern;
 }
 
+/**
+ * One-shot subcommand: pre-friend a userid by directly writing to the
+ * dora data dir's friend store, then exit. Used to onboard a peer
+ * whose friend-request can't reach dora over Carrier (e.g. the public
+ * express relay is returning 500s and DHT onion discovery missed the
+ * dora announce — a common failure mode in the wild). After the edit,
+ * restart the server and the pre-friended peer's next register call
+ * lands instantly.
+ *
+ * Usage: dora friend-add <userid> [name] [address] [--data-dir <dir>]
+ * Idempotent — re-running is a no-op if the userid is already in the
+ * store.
+ */
+function cmdFriendAdd(dataDir: string, positionals: string[]): void {
+  const [userid, name, address] = positionals;
+  if (!userid) {
+    console.error(
+      "dora friend-add: missing <userid> (run with --help for usage)"
+    );
+    process.exit(1);
+  }
+  // Validate userid shape: base58 of a 32-byte pubkey is ~44 chars.
+  // Loose check to catch obvious typos without dragging in a base58
+  // decode dep.
+  if (userid.length < 40 || userid.length > 50) {
+    console.error(
+      `dora friend-add: '${userid}' doesn't look like a Carrier userid (expected ~44 base58 chars). Refusing.`
+    );
+    process.exit(1);
+  }
+  const friendsFile = resolve(dataDir, "keypair.json.friends.json");
+  let friends: Record<string, unknown>[] = [];
+  if (existsSync(friendsFile)) {
+    try {
+      friends = JSON.parse(readFileSync(friendsFile, "utf-8"));
+    } catch (err) {
+      console.error(
+        `dora friend-add: ${friendsFile} is corrupt: ${err instanceof Error ? err.message : err}`
+      );
+      process.exit(1);
+    }
+  }
+  if (friends.some((f) => f.pubkey === userid || f.userid === userid)) {
+    console.log(`dora friend-add: ${userid} already in friend store — no change.`);
+    return;
+  }
+  friends.push({
+    pubkey: userid,
+    userid,
+    address: address ?? undefined,
+    name: name ?? "@decentnetwork/peer",
+    status: "offline",
+    // Marking acceptedAt makes the SDK treat this record as an accepted
+    // friend on next start (vs. a pending outbound request).
+    acceptedAt: 1_700_000_000_000,
+  });
+  writeFileSync(friendsFile, JSON.stringify(friends, null, 2));
+  console.log(
+    `dora friend-add: added ${userid}${name ? ` (${name})` : ""} to ${friendsFile}.`
+  );
+  console.log(
+    `Restart the dora server so the SDK loads the updated friend store.`
+  );
+}
+
 async function main(): Promise<void> {
+  // Subcommand dispatch: `dora friend-add ...` is a one-shot that
+  // edits the friend store and exits without starting the server.
+  // Everything else falls through to the server-startup path below.
+  const subcommand = process.argv[2];
+  if (subcommand === "friend-add") {
+    const positionals = process.argv
+      .slice(3)
+      .filter((a) => !a.startsWith("--") && process.argv[process.argv.indexOf(a) - 1] !== "--data-dir");
+    const dataDir = resolve(arg("data-dir", defaultDataDir())!);
+    mkdirSync(dataDir, { recursive: true });
+    cmdFriendAdd(dataDir, positionals);
+    return;
+  }
+
   // Default data-dir is ~/.dora (matches the package name). For
   // backward compat: if ~/.dora doesn't exist but the legacy
   // ~/.decent-registry does (we were called "decent-registry"

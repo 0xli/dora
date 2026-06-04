@@ -50,8 +50,65 @@ The **userid** is what every other peer puts in its config to find
 the server. The **address** is what they use to send a one-time
 friend-request to it (dora auto-accepts every friend request).
 
-Background-mode launch is up to you — `systemd`, `launchd`, `tmux`,
-`pm2`, whatever your environment uses.
+## Run as a service (recommended)
+
+The one-liner for persistence + auto-restart:
+
+### Linux (systemd)
+
+```bash
+sudo tee /etc/systemd/system/dora.service > /dev/null <<EOF
+[Unit]
+Description=Decent AgentNet dora registry
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$USER
+ExecStart=$(which dora) --data-dir $HOME/.dora --verbose
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:$HOME/.dora/dora.log
+StandardError=append:$HOME/.dora/dora.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now dora
+journalctl -u dora -f
+```
+
+dora runs as your user (no sudo needed at runtime — it's not a network
+appliance, just a Carrier peer).
+
+### macOS (launchd, user agent)
+
+```bash
+mkdir -p ~/Library/LaunchAgents
+tee ~/Library/LaunchAgents/com.decentnetwork.dora.plist > /dev/null <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.decentnetwork.dora</string>
+  <key>ProgramArguments</key><array>
+    <string>$(which dora)</string>
+    <string>--data-dir</string>
+    <string>$HOME/.dora</string>
+    <string>--verbose</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>$HOME/.dora/dora.log</string>
+  <key>StandardErrorPath</key><string>$HOME/.dora/dora.log</string>
+</dict></plist>
+EOF
+launchctl load ~/Library/LaunchAgents/com.decentnetwork.dora.plist
+tail -f ~/.dora/dora.log
+```
+
+To stop later: `launchctl unload ~/Library/LaunchAgents/com.decentnetwork.dora.plist`.
 
 ## Use from a decentlan client
 
@@ -86,6 +143,40 @@ Back these up if dora's data dir matters to you.
 --range-end <ip>       Last IP in the pool (default: 10.86.254.254)
 --verbose              Log every register/lookup/list operation
 ```
+
+## Pre-friending a peer when the friend-request can't reach you
+
+The Carrier friend-request from a fresh client travels via either an
+onion route through the DHT or, as fallback, the public express relay
+(`lens.beagle.chat`). Both can fail transiently — express has been
+seen returning HTTP 500 for hours at a time, and a freshly-restarted
+dora's announce may not have propagated to the bootstrap nodes a
+particular client is querying. The symptom: client `agentnet diag`
+shows the dora friend stuck on `status: requested` forever, IPAM stays
+empty.
+
+When this happens, the dora operator can **bypass the friend-request
+path** and add the peer directly to dora's friend store:
+
+```bash
+# get the peer's userid (they run this on their box):
+agentnet identity show
+# → userid: 2wErj1XreXt1UchE3FGhuvkZ4GoBpo8JGMn8X49nm2ec
+
+# on the dora server, stop dora, pre-friend, restart:
+sudo systemctl stop dora       # or 'launchctl unload …' on macOS
+dora friend-add 2wErj1XreXt1UchE3FGhuvkZ4GoBpo8JGMn8X49nm2ec power
+sudo systemctl start dora
+```
+
+The peer's next register call (within ~60s) lands instantly — no
+friend-request handshake needed because dora already has them in the
+friend store. Idempotent: re-running `friend-add` for the same userid
+is a no-op.
+
+This is also the easy way to **invite-only your dora**: disable
+`autoFriend` on the dora side (TODO — currently dora auto-accepts) and
+pre-friend each peer manually.
 
 ## Upgrading
 
