@@ -262,12 +262,20 @@ async function main(): Promise<void> {
   // Bootstrap nodes — same default set as decentlan. Operators who want
   // a private registry can edit this list or pass --bootstrap (not
   // wired up yet in v0.1).
+  // Ordered with US relays first — must match decentlan's
+  // DEFAULT_BOOTSTRAP_NODES order so dora and its clients land on
+  // the same TCP relay set. Without this, dora here on a US Mac
+  // ended up connected only to 47.100.x (Alibaba Shanghai) and
+  // every US client connected to AWS US-East — no shared relay,
+  // no path for net_crypto handshake, dora always offline from
+  // clients' perspective. Clients in CN/SG can still reach dora
+  // via the fallback nodes later in the list.
   const DEFAULT_BOOTSTRAPS = [
-    { host: "47.100.103.201", port: 33445, pk: "CX1XH419p4xJ5SV4KvDxBeKYSRdMJW9QpdWJY8owUxHd" },
-    { host: "154.64.235.176", port: 33445, pk: "GdNtV2N74fZnLjhH7NhQ18nGdxb1k8jRM9dQaK7WnxmL" },
     { host: "13.58.208.50", port: 33445, pk: "89vny8MrKdDKs7Uta9RdVmspPjnRMdwMmaiEW27pZ7gh" },
     { host: "18.216.102.47", port: 33445, pk: "G5z8MqiNDFTadFUPfMdYsYtkUDbX5mNCMVHMZtsCnFeb" },
     { host: "54.193.141.205", port: 33445, pk: "7TfZWZNV8vnBxxWzJXuvKgX2QyKkLpg2oXx3LQ5tg8LW" },
+    { host: "154.64.235.176", port: 33445, pk: "GdNtV2N74fZnLjhH7NhQ18nGdxb1k8jRM9dQaK7WnxmL" },
+    { host: "47.100.103.201", port: 33445, pk: "CX1XH419p4xJ5SV4KvDxBeKYSRdMJW9QpdWJY8owUxHd" },
   ];
 
   // Express nodes deliver friend-requests for a recipient that is
