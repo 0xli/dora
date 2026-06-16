@@ -70,6 +70,16 @@ function findCompetingDoraProcesses(dataDir: string): number[] {
     // but is exceedingly unlikely.
     if (!/\b(dora|cli\.js)\b/i.test(args)) continue;
     if (!args.includes(dataDir)) continue;
+    // Skip shell wrappers that merely *mention* the dora command in their
+    // argv — e.g. a `zsh -c '... node dist/cli.js --data-dir <dir>'`
+    // launcher (agent background-task wrappers, shell-snapshot sourcing).
+    // Only a real `node`/dora invocation is a competing server; a shell
+    // interpreter run with -c is not. Without this guard the lock
+    // false-positives on its own launcher and the dora can never start.
+    const exe = args.split(/\s+/)[0] || "";
+    const isShellWrapper =
+      /(^|\/)(zsh|bash|sh|dash|ksh|fish)$/.test(exe) && /(^|\s)-c(\s|$)/.test(args);
+    if (isShellWrapper || /shell-snapshots|(^|\s)eval(\s|$)/.test(args)) continue;
     pids.push(pid);
   }
   return pids;
