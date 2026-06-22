@@ -8,6 +8,10 @@
  */
 
 import { Peer } from "@decentnetwork/peer";
+// Dora control rides toxcore custom packet 162 (lossless), matching
+// decentlan's client side — NOT the chat/message channel (64). See
+// decentlan docs/PROTOCOL.md.
+const PACKET_ID_DL_DORA = 162;
 import type { RegistryStore } from "./store.js";
 import type { IpAllocator } from "./allocator.js";
 import {
@@ -65,11 +69,12 @@ export class RegistryServer {
       }
     );
 
-    this.peer.onText((msg: { pubkey: string; text: string }) => {
-      const req = decode(msg.text);
+    this.peer.onCustomPacket((pkt: { pubkey: string; id: number; data: Uint8Array }) => {
+      if (pkt.id !== PACKET_ID_DL_DORA) return;
+      const req = decode(Buffer.from(pkt.data).toString("utf-8"));
       if (!req) return; // not a registry message
-      this.handle(msg.pubkey, req as RegistryRequest).catch((err) => {
-        this.log(`error handling ${(req as RegistryRequest).op} from ${msg.pubkey.slice(0, 12)}: ${err}`);
+      this.handle(pkt.pubkey, req as RegistryRequest).catch((err) => {
+        this.log(`error handling ${(req as RegistryRequest).op} from ${pkt.pubkey.slice(0, 12)}: ${err}`);
       });
     });
 
@@ -121,18 +126,24 @@ export class RegistryServer {
       case "list": {
         // Trim records to the fields the client actually consumes
         // (userid, name, virtualIp, address). registeredAt and
-        // lastSeenAt save ~80 bytes per record; with 5-10 peers
-        // that's the difference between fitting in Carrier's
-        // 1372-byte text-message limit and not. Without this
-        // trimming, large rosters timeout on the client side
-        // because the message gets dropped at the SDK layer.
-        const trimmed = this.store.list().map((r) => ({
+        // lastSeenAt save ~80 bytes per record.
+        const all = this.store.list().map((r) => ({
           userid: r.userid,
           name: r.name,
           virtualIp: r.virtualIp,
           address: r.address,
         }));
-        response = { op: "list-ok", records: trimmed as RegistryRecord[] };
+        // Paginate: even trimmed, a roster of >~8 peers blows past
+        // Carrier's ~1372-byte text-message limit, so the whole reply
+        // gets dropped at the SDK layer and the client times out. Return
+        // a bounded page from `offset` plus the full `total`; the client
+        // pages through until it has them all. A page small enough to fit
+        // one record's worst case (~160 B) × LIST_PAGE_SIZE stays well
+        // under the limit with room for the JSON envelope.
+        const offset = Math.max(0, (req as { offset?: number }).offset ?? 0);
+        const LIST_PAGE_SIZE = 6;
+        const page = all.slice(offset, offset + LIST_PAGE_SIZE);
+        response = { op: "list-ok", records: page as RegistryRecord[], total: all.length };
         break;
       }
       default:
@@ -146,7 +157,7 @@ export class RegistryServer {
       `[dora-debug] send ${response.op} to=${fromUserid.slice(0, 12)} bytes=${Buffer.byteLength(encoded, "utf-8")}\n`
     );
     try {
-      await this.peer.sendText(fromUserid, encoded);
+      await this.peer.sendCustomPacket(fromUserid, PACKET_ID_DL_DORA, Buffer.from(encoded, "utf-8"));
       process.stderr.write(`[dora-debug] send ${response.op} to=${fromUserid.slice(0, 12)} OK\n`);
     } catch (err) {
       process.stderr.write(`[dora-debug] send ${response.op} to=${fromUserid.slice(0, 12)} ERR: ${err}\n`);

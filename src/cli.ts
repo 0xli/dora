@@ -295,7 +295,12 @@ async function main(): Promise<void> {
   // appears to succeed but the dora-side onFriendRequest handler
   // never fires.
   const DEFAULT_EXPRESSES = [
+    // lens PRIMARY so dora replies land where every client (incl. old
+    // lens-only ones) can pull them; tokyo is the dedicated relay kept as a
+    // hot standby. peer >= 0.1.25 pulls from BOTH. See the matching list in
+    // decentlan's loader.ts.
     { host: "lens.beagle.chat", port: 443, pk: "ECbs4GxwGzxGerNkmqDJFibEmevu8jAXqAZtikccvD95" },
+    { host: "tokyo.fi.chat", port: 8443, pk: "EzpBtoUkjeMQfuLGWwTUbvzCn9rK4J648Ziy21EKxefo" },
   ];
 
   const peer = await Peer.create({

@@ -101,10 +101,29 @@ export class RegistryClient {
   }
 
   async list(): Promise<RegistryRecord[]> {
-    const res = await this.exchange({ op: "list" });
-    if (res.op === "list-ok") return res.records;
-    if (res.op === "list-err") throw new Error(`list failed: ${res.reason}`);
-    throw new Error(`unexpected response op: ${res.op}`);
+    // Page through the roster: a large roster exceeds Carrier's
+    // ~1372-byte text-message limit in one reply, so the server returns
+    // a bounded page + the full `total`, and we keep requesting the next
+    // offset until we've collected them all. Old servers omit `total`
+    // (and ignore `offset`) → the first reply is the whole roster and the
+    // loop exits after one round. A safety cap stops a misbehaving server
+    // from looping forever.
+    const collected: RegistryRecord[] = [];
+    let offset = 0;
+    for (let guard = 0; guard < 1000; guard++) {
+      const res = await this.exchange({ op: "list", offset });
+      if (res.op === "list-err") throw new Error(`list failed: ${res.reason}`);
+      if (res.op !== "list-ok") throw new Error(`unexpected response op: ${res.op}`);
+      collected.push(...res.records);
+      const total = res.total;
+      // No total (old server) or we've got everything, or the server
+      // returned an empty page (nothing more) → done.
+      if (total === undefined || collected.length >= total || res.records.length === 0) {
+        break;
+      }
+      offset = collected.length;
+    }
+    return collected;
   }
 
   /** Try each configured registry in order; return the first response.

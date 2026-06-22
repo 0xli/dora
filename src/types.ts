@@ -89,11 +89,22 @@ export interface LookupErr {
 
 export interface ListRequest {
   op: "list";
+  /** Pagination: index of the first record to return. A large roster
+   *  exceeds Carrier's ~1372-byte text-message limit in one reply, so
+   *  the client pages through it (offset 0, then offset+records.length,
+   *  …) until it has collected `total`. Omitted by old clients → server
+   *  returns the first page only (back-compat). */
+  offset?: number;
 }
 
 export interface ListOk {
   op: "list-ok";
   records: RegistryRecord[];
+  /** Total number of records in the roster (across all pages). When
+   *  records.length < total, the client requests the next page at
+   *  offset += records.length. Omitted by old servers → client treats
+   *  the single reply as the whole roster (back-compat). */
+  total?: number;
 }
 
 export interface ListErr {
