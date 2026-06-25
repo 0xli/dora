@@ -73,17 +73,62 @@ export class RegistryClient {
     requestedIp?: string;
     replace?: boolean;
   }): Promise<RegistryRecord> {
-    const res = await this.exchange({
+    this.ensureSubscribed();
+    const timeoutMs = this.opts.timeoutMs ?? 10000;
+    const userids = this.opts.registryUserids;
+    if (userids.length === 0) {
+      throw new AllRegistriesUnavailableError("no registry userids configured");
+    }
+    const req: RegistryRequest = {
       op: "register",
       userid: opts.userid,
       name: opts.name,
       address: opts.address,
       requestedIp: opts.requestedIp,
       replace: opts.replace,
-    });
-    if (res.op === "register-ok") return res.record;
-    if (res.op === "register-err") throw new Error(`register failed: ${res.reason}`);
-    throw new Error(`unexpected response op: ${res.op}`);
+    };
+
+    // Federated registries each allocate from a NON-OVERLAPPING segment.
+    // A fixed requestedIp (e.g. a node's stable config IP) is only valid for
+    // the ONE registry that owns its segment — every other registry answers
+    // "ip … is out of range". The generic exchange() returns the FIRST
+    // response, so if a sibling registry replied first the register failed
+    // and the node fell back to its (now unregistered) config IP, dropping
+    // all traffic to peers it never learned from the roster. Instead, walk
+    // the registries and treat an out-of-range rejection as "wrong segment,
+    // try the next one" — so the request reaches the registry that owns the
+    // IP and the node keeps its stable address. A NON-range rejection (IP
+    // collision / name taken) is definitive: we reached the owning registry
+    // and the slot is genuinely unavailable, so surface it immediately.
+    const transportErrors: string[] = [];
+    let lastRangeRejection: string | undefined;
+    for (const registryUserid of userids) {
+      let res: RegistryResponse;
+      try {
+        res = await this.exchangeOne(req, registryUserid, timeoutMs);
+      } catch (err) {
+        transportErrors.push(`${registryUserid.slice(0, 12)}...: ${(err as Error).message}`);
+        continue;
+      }
+      if (res.op === "register-ok") return res.record;
+      if (res.op === "register-err") {
+        if (/out of range/i.test(res.reason)) {
+          lastRangeRejection = res.reason;
+          continue; // wrong segment — ask a sibling registry
+        }
+        throw new Error(`register failed: ${res.reason}`);
+      }
+      throw new Error(`unexpected response op: ${res.op}`);
+    }
+    // No registry accepted the IP. If at least one reached us and said
+    // out-of-range, that's the meaningful error (the requested IP belongs to
+    // no live segment); otherwise every registry was unreachable.
+    if (lastRangeRejection !== undefined) {
+      throw new Error(`register failed: ${lastRangeRejection}`);
+    }
+    throw new AllRegistriesUnavailableError(
+      `all ${userids.length} registries unreachable: ${transportErrors.join("; ")}`
+    );
   }
 
   async lookup(opts: {
