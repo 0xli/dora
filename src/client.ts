@@ -146,17 +146,75 @@ export class RegistryClient {
   }
 
   async list(): Promise<RegistryRecord[]> {
-    // Page through the roster: a large roster exceeds Carrier's
-    // ~1372-byte text-message limit in one reply, so the server returns
-    // a bounded page + the full `total`, and we keep requesting the next
-    // offset until we've collected them all. Old servers omit `total`
-    // (and ignore `offset`) → the first reply is the whole roster and the
-    // loop exits after one round. A safety cap stops a misbehaving server
-    // from looping forever.
+    // Query EVERY configured registry and MERGE their rosters — do NOT return
+    // just the first responder (the old behaviour, via exchange()).
+    //
+    // Federated doras each own a DISJOINT segment of the address space and only
+    // hold the peers registered in their own segment. So a client that reads one
+    // dora sees only one slice of the network: mac-dev (registered with dora-mac)
+    // and node-6232 (registered with dora-tokyo) end up Carrier-friends yet never
+    // learn each other's virtual IP, because whichever dora answered first didn't
+    // hold the other peer's record. The whole point of the federation is that the
+    // client stitches the segments back together — that stitching happens HERE.
+    //
+    // Fault tolerance is the same property the operator asked for: as long as ONE
+    // dora answers, its peers are visible; a down dora only hides the peers that
+    // registered exclusively with it, never the rest. We throw only when EVERY
+    // dora is unreachable (so the caller keeps its last-known IPAM instead of
+    // wiping it). Queried concurrently so one slow/dead dora doesn't add its full
+    // timeout to the others — a sequential walk over 4 doras with a 30s timeout
+    // could stall the 60s refresh for two minutes.
+    this.ensureSubscribed();
+    const timeoutMs = this.opts.timeoutMs ?? 10000;
+    const userids = this.opts.registryUserids;
+    if (userids.length === 0) {
+      throw new AllRegistriesUnavailableError("no registry userids configured");
+    }
+    const results = await Promise.allSettled(
+      userids.map((id) => this.listOne(id, timeoutMs))
+    );
+    // Merge, deduping by userid. First dora to report a userid wins; with
+    // disjoint segments there's no overlap, but a peer that re-registered across
+    // a segment boundary (or a misconfigured dora) can't produce a duplicate.
+    const byUserid = new Map<string, RegistryRecord>();
+    const errors: string[] = [];
+    let anyOk = false;
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i]!;
+      if (r.status === "fulfilled") {
+        anyOk = true;
+        for (const rec of r.value) {
+          if (!byUserid.has(rec.userid)) byUserid.set(rec.userid, rec);
+        }
+      } else {
+        const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
+        errors.push(`${userids[i]!.slice(0, 12)}...: ${reason}`);
+      }
+    }
+    if (!anyOk) {
+      throw new AllRegistriesUnavailableError(
+        `all ${userids.length} registries unreachable: ${errors.join("; ")}`
+      );
+    }
+    return [...byUserid.values()];
+  }
+
+  /** Page through ONE registry's roster and return all of its records.
+   *  A large roster exceeds Carrier's ~1372-byte text-message limit in one
+   *  reply, so the server returns a bounded page + the full `total`, and we
+   *  keep requesting the next offset until we've collected them all. Old
+   *  servers omit `total` (and ignore `offset`) → the first reply is the whole
+   *  roster and the loop exits after one round. A safety cap stops a
+   *  misbehaving server from looping forever. Throws on transport failure /
+   *  server error so the caller (list) can record it as one dora being down. */
+  private async listOne(
+    registryUserid: string,
+    timeoutMs: number
+  ): Promise<RegistryRecord[]> {
     const collected: RegistryRecord[] = [];
     let offset = 0;
     for (let guard = 0; guard < 1000; guard++) {
-      const res = await this.exchange({ op: "list", offset });
+      const res = await this.exchangeOne({ op: "list", offset }, registryUserid, timeoutMs);
       if (res.op === "list-err") throw new Error(`list failed: ${res.reason}`);
       if (res.op !== "list-ok") throw new Error(`unexpected response op: ${res.op}`);
       collected.push(...res.records);
