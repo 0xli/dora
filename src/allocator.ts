@@ -28,11 +28,20 @@ export class IpAllocator {
     this.end = ipToNum(opts.rangeEnd ?? "10.86.254.254");
   }
 
-  /** Confirm the caller's requested IP is free; on conflict, return null. */
+  /** Confirm the caller's requested IP is free AND within THIS registry's own
+   *  range; otherwise reject so the client walks to the owning registry.
+   *
+   *  Was checking the whole /16 (10.86.0.0–255.254), so every dora accepted any
+   *  10.86.x request. Effect: a node registered with whichever dora it reached
+   *  first — not the one that owns its IP range — scattering registrations
+   *  across the federation. Since clients discover a peer only by pulling the
+   *  dora it registered with, two nodes on different (arbitrary) doras couldn't
+   *  see each other's virtual IP even while Carrier-connected (observed:
+   *  mac-dev on dora-mac, node-6232 on dora-tokyo — friends, but no L3). */
   acceptRequested(ip: string): boolean {
     if (this.store.findByIp(ip)) return false;
     const n = ipToNum(ip);
-    return n >= ipToNum("10.86.0.0") && n <= ipToNum("10.86.255.254");
+    return n >= this.start && n <= this.end;
   }
 
   /** Walk the range and return the first IP that isn't already in
