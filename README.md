@@ -26,7 +26,7 @@ yourself:
 
 ```bash
 npm install -g @decentnetwork/dora    # (once published)
-dora --data-dir ~/.dora --verbose
+dora --data-dir ~/.dora --udp-port 43232 --verbose
 ```
 
 This is intentional separation from decentlan (which DOES need root
@@ -45,7 +45,7 @@ Step-by-step:
 
 1. **Run dora on some always-on box.**
    ```bash
-   dora --data-dir ~/.dora --verbose
+   dora --data-dir ~/.dora --udp-port 43232 --verbose
    ```
    On startup it prints:
    ```

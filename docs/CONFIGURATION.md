@@ -14,7 +14,14 @@ See [`INSTALL.md`](INSTALL.md) for first-time setup.
 | `--data-dir <path>` | `~/.dora` (or legacy `~/.decent-registry` if it exists from a pre-rename install) | Holds the Carrier keypair, the friend store, and `roster.yaml`. **The identity in this dir IS the dora server's public name** — keep it stable. |
 | `--range-start <ip>` | `10.86.1.10` | First IP the allocator hands out to a fresh peer. |
 | `--range-end <ip>` | `10.86.254.254` | Last IP. Must be in the same /16 as `--range-start`. |
+| `--udp-port <port>` | ephemeral | Stable Carrier UDP port. Strongly recommended for an always-on public Dora so cached endpoints remain valid across upgrades and restarts. |
 | `--verbose` | off | Log every operation. Useful while bringing a network up; noisy in steady state. |
+
+For a managed service, choose an unused high UDP port and keep it unchanged:
+
+```bash
+dora --data-dir ~/.dora --udp-port 43232 --verbose
+```
 
 ## Reserved range
 
