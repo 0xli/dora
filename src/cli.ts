@@ -5,7 +5,7 @@
  * registry for a Decent Network virtual LAN).
  *
  * Usage:
- *   dora [--data-dir ~/.dora] [--range-start 10.86.1.10] [--verbose]
+ *   dora [--data-dir ~/.dora] [--range-start 10.86.1.10] [--udp-port 33446] [--verbose]
  */
 
 import { resolve } from "path";
@@ -305,6 +305,15 @@ async function main(): Promise<void> {
 
   const peer = await Peer.create({
     keyFile,
+    udpPort: (() => {
+      const raw = arg("udp-port");
+      if (raw === undefined) return undefined;
+      const port = Number.parseInt(raw, 10);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error(`invalid --udp-port '${raw}' (expected 1..65535)`);
+      }
+      return port;
+    })(),
     compatibilityMode: "legacy",
     bootstrapNodes: DEFAULT_BOOTSTRAPS,
     expressNodes: DEFAULT_EXPRESSES,
