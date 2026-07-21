@@ -337,11 +337,31 @@ async function main(): Promise<void> {
     console.warn(`self-announce warning: ${(err as Error).message}`);
   });
 
+  // --peers <userid>[=<address>],... — sibling registries to replicate from,
+  // so this dora can answer for their segments too and one dora going down
+  // isn't a network-wide resolution outage. Supply the address the first time
+  // so the two can friend each other; afterwards the userid alone is enough.
+  const siblings = (arg("peers") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [userid, address] = entry.split("=");
+      return { userid: userid!.trim(), address: address?.trim() || undefined };
+    })
+    .filter((s) => s.userid.length > 0);
+  if (siblings.length > 0) {
+    console.log(`registry replication: ${siblings.map((s) => s.userid.slice(0, 12)).join(", ")}`);
+  }
+
   const server = new RegistryServer({
     peer,
     store,
     allocator,
     verbose: flag("verbose"),
+    siblings,
+    syncIntervalMs: Number(arg("sync-interval-ms")) || undefined,
+    replicaTtlMs: Number(arg("replica-ttl-ms")) || undefined,
   });
   server.start();
 

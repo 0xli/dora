@@ -72,6 +72,73 @@ export class RegistryStore {
     this.persist();
   }
 
+  /** Records this registry owns (no `replicatedFrom`) — the ones it is
+   *  authoritative for and the only ones a sibling may replicate. */
+  listOwned(): RegistryRecord[] {
+    return [...this.records.values()].filter((r) => !r.replicatedFrom);
+  }
+
+  /**
+   * Merge a batch of records pulled from a sibling registry.
+   *
+   * Rules that keep replication safe:
+   *  - An OWNED record is never overwritten by a replica. We are the
+   *    authority for our own segment; a sibling's stale copy must not
+   *    clobber it.
+   *  - A replica is only refreshed by the sibling it came from, so two
+   *    siblings can't fight over the same record.
+   *  - `skip` lets the caller drop records it is authoritative for
+   *    (its own IP range) before they ever enter the store.
+   *
+   * One persist for the whole batch — not one per record.
+   * Returns how many records were added or refreshed.
+   */
+  putReplicatedBatch(
+    records: RegistryRecord[],
+    fromUserid: string,
+    skip: (rec: RegistryRecord) => boolean = () => false
+  ): number {
+    const now = new Date().toISOString();
+    let changed = 0;
+    for (const rec of records) {
+      if (!rec?.userid || skip(rec)) continue;
+      const existing = this.records.get(rec.userid);
+      // Never let a replica shadow a record we own.
+      if (existing && !existing.replicatedFrom) continue;
+      // Only the sibling that supplied a replica may refresh it.
+      if (existing?.replicatedFrom && existing.replicatedFrom !== fromUserid) continue;
+      this.records.set(rec.userid, {
+        ...rec,
+        replicatedFrom: fromUserid,
+        replicatedAt: now,
+      });
+      changed++;
+    }
+    if (changed) this.persist();
+    return changed;
+  }
+
+  /**
+   * Drop replicas not re-asserted within `ttlMs`. This is what makes a
+   * replica soft state: when the owning registry goes away (or simply
+   * stops publishing a record) the copies fade instead of becoming
+   * immortal zombies that answer with long-dead IPs. Owned records are
+   * never pruned here. Returns how many were dropped.
+   */
+  pruneStaleReplicas(ttlMs: number, now: number = Date.now()): number {
+    let dropped = 0;
+    for (const [userid, r] of this.records) {
+      if (!r.replicatedFrom) continue;
+      const at = r.replicatedAt ? Date.parse(r.replicatedAt) : 0;
+      if (!Number.isFinite(at) || now - at > ttlMs) {
+        this.records.delete(userid);
+        dropped++;
+      }
+    }
+    if (dropped) this.persist();
+    return dropped;
+  }
+
   /** Returns true if a record was removed. */
   remove(userid: string): boolean {
     const ok = this.records.delete(userid);

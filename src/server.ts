@@ -28,6 +28,25 @@ export interface RegistryServerOptions {
   allocator: IpAllocator;
   /** Emit log lines for every served operation. */
   verbose?: boolean;
+  /**
+   * Sibling registries to replicate from, as `{ userid, address? }`.
+   * Empty (the default) keeps replication OFF and the server behaves
+   * exactly as before.
+   *
+   * Why: each dora is authoritative for one IP segment and nothing else,
+   * so losing one dora used to blind the whole network to that segment —
+   * clients could still get their own IP from a surviving dora but could
+   * not resolve anybody in the dead dora's range. Pulling siblings'
+   * rosters makes every dora able to answer for the whole /16, so a
+   * single dora going down stops being a network-wide outage.
+   */
+  siblings?: Array<{ userid: string; address?: string }>;
+  /** How often to pull sibling rosters. Default 60s. */
+  syncIntervalMs?: number;
+  /** Drop replicas not re-asserted within this window. Default 15min —
+   *  long enough to ride out a sibling restart, short enough that a
+   *  retired record doesn't answer for hours. */
+  replicaTtlMs?: number;
 }
 
 export class RegistryServer {
@@ -37,12 +56,23 @@ export class RegistryServer {
   private verbose: boolean;
   private isRunning = false;
   private kickFriendsTimer: NodeJS.Timeout | null = null;
+  private siblings: Array<{ userid: string; address?: string }>;
+  private syncIntervalMs: number;
+  private replicaTtlMs: number;
+  private syncTimer: NodeJS.Timeout | null = null;
+  /** In-flight sibling list requests, keyed by sibling userid. Responses
+   *  arrive on the same custom-packet channel as requests, so the packet
+   *  handler routes `*-ok`/`*-err` here instead of into `handle()`. */
+  private pendingSync = new Map<string, (res: RegistryResponse) => void>();
 
   constructor(opts: RegistryServerOptions) {
     this.peer = opts.peer;
     this.store = opts.store;
     this.allocator = opts.allocator;
     this.verbose = opts.verbose ?? false;
+    this.siblings = opts.siblings ?? [];
+    this.syncIntervalMs = opts.syncIntervalMs ?? 60_000;
+    this.replicaTtlMs = opts.replicaTtlMs ?? 15 * 60_000;
   }
 
   start(): void {
@@ -71,10 +101,22 @@ export class RegistryServer {
 
     this.peer.onCustomPacket((pkt: { pubkey: string; id: number; data: Uint8Array }) => {
       if (pkt.id !== PACKET_ID_DL_DORA) return;
-      const req = decode(Buffer.from(pkt.data).toString("utf-8"));
-      if (!req) return; // not a registry message
-      this.handle(pkt.pubkey, req as RegistryRequest).catch((err) => {
-        this.log(`error handling ${(req as RegistryRequest).op} from ${pkt.pubkey.slice(0, 12)}: ${err}`);
+      const msg = decode(Buffer.from(pkt.data).toString("utf-8"));
+      if (!msg) return; // not a registry message
+      const op = (msg as { op?: string }).op ?? "";
+      // Replies to OUR sibling-sync requests share this channel with
+      // inbound client requests. Route them to the waiter; they are not
+      // operations to serve.
+      if (op.endsWith("-ok") || op.endsWith("-err")) {
+        const waiter = this.pendingSync.get(pkt.pubkey);
+        if (waiter) {
+          this.pendingSync.delete(pkt.pubkey);
+          waiter(msg as RegistryResponse);
+        }
+        return;
+      }
+      this.handle(pkt.pubkey, msg as RegistryRequest).catch((err) => {
+        this.log(`error handling ${(msg as RegistryRequest).op} from ${pkt.pubkey.slice(0, 12)}: ${err}`);
       });
     });
 
@@ -105,7 +147,98 @@ export class RegistryServer {
       }
     }, 1000);
 
+    this.startSiblingSync();
+
     this.log("dora server started — friend requests will auto-accept");
+  }
+
+  /**
+   * Replicate sibling registries' rosters so this dora can answer for the
+   * whole /16, not just its own segment. Off unless siblings are configured.
+   */
+  private startSiblingSync(): void {
+    if (this.siblings.length === 0) return;
+
+    // We can only exchange packets with a friend, so make sure we are one.
+    // Siblings auto-accept, same as any client.
+    for (const s of this.siblings) {
+      if (!s.address) continue;
+      this.peer.sendFriendRequest(s.address, "dora sibling replication").catch(() => undefined);
+    }
+
+    const run = (): void => {
+      const dropped = this.store.pruneStaleReplicas(this.replicaTtlMs);
+      if (dropped) this.log(`replication: pruned ${dropped} stale replica(s)`);
+      for (const s of this.siblings) {
+        this.syncFrom(s.userid).catch((err) => {
+          this.log(`replication: sync from ${s.userid.slice(0, 12)} failed: ${err}`);
+        });
+      }
+    };
+    this.syncTimer = setInterval(run, this.syncIntervalMs);
+    this.syncTimer.unref?.();
+    // First pass shortly after start, once sessions have had a moment.
+    setTimeout(run, 10_000);
+    this.log(
+      `replication: enabled for ${this.siblings.length} sibling(s), every ${Math.round(this.syncIntervalMs / 1000)}s`
+    );
+  }
+
+  /** Page through one sibling's roster and merge what it is authoritative
+   *  for. Records it merely replicates itself are skipped, so every record
+   *  has exactly one origin and a retired one can actually expire instead of
+   *  being kept alive forever by replicas echoing each other. */
+  private async syncFrom(siblingUserid: string): Promise<void> {
+    const collected: RegistryRecord[] = [];
+    let offset = 0;
+    for (let page = 0; page < 50; page++) {
+      const res = await this.request(siblingUserid, { op: "list", offset } as RegistryRequest);
+      if (!res || res.op !== "list-ok") return;
+      const records = (res.records ?? []) as Array<RegistryRecord & { rep?: number }>;
+      for (const r of records) {
+        if (r.rep) continue; // the sibling's own replica — not its to vouch for
+        collected.push(r);
+      }
+      offset += records.length;
+      if (records.length === 0 || offset >= (res.total ?? 0)) break;
+    }
+    if (collected.length === 0) return;
+    // Never accept a copy of anything in our own segment: we are the
+    // authority there and a sibling's view may be stale.
+    const merged = this.store.putReplicatedBatch(collected, siblingUserid, (rec) =>
+      this.allocator.ownsIp(rec.virtualIp)
+    );
+    if (merged) {
+      this.log(`replication: merged ${merged} record(s) from ${siblingUserid.slice(0, 12)}`);
+    }
+  }
+
+  /** One request/response round-trip to a sibling over the dora channel. */
+  private request(
+    toUserid: string,
+    req: RegistryRequest,
+    timeoutMs = 15_000
+  ): Promise<RegistryResponse | null> {
+    return new Promise((resolve) => {
+      // Only one in-flight request per sibling — the sync loop is serial.
+      if (this.pendingSync.has(toUserid)) return resolve(null);
+      const timer = setTimeout(() => {
+        this.pendingSync.delete(toUserid);
+        resolve(null);
+      }, timeoutMs);
+      timer.unref?.();
+      this.pendingSync.set(toUserid, (res) => {
+        clearTimeout(timer);
+        resolve(res);
+      });
+      this.peer
+        .sendCustomPacket(toUserid, PACKET_ID_DL_DORA, Buffer.from(encode(req), "utf-8"))
+        .catch(() => {
+          clearTimeout(timer);
+          this.pendingSync.delete(toUserid);
+          resolve(null);
+        });
+    });
   }
 
   private async handle(fromUserid: string, req: RegistryRequest): Promise<void> {
@@ -127,11 +260,15 @@ export class RegistryServer {
         // Trim records to the fields the client actually consumes
         // (userid, name, virtualIp, address). registeredAt and
         // lastSeenAt save ~80 bytes per record.
+        // `rep: 1` flags a record we only hold a replica of. Clients ignore
+        // the extra field; a syncing sibling uses it to skip second-hand
+        // records so each record keeps exactly one authoritative origin.
         const all = this.store.list().map((r) => ({
           userid: r.userid,
           name: r.name,
           virtualIp: r.virtualIp,
           address: r.address,
+          ...(r.replicatedFrom ? { rep: 1 } : {}),
         }));
         // Paginate: even trimmed, a roster of >~8 peers blows past
         // Carrier's ~1372-byte text-message limit, so the whole reply

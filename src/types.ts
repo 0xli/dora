@@ -31,6 +31,15 @@ export interface RegistryRecord {
    *  Optional only for backward-compat with older records; newly-
    *  registered peers always supply it. */
   address?: string;
+  /** Set on records this registry does NOT own — copies pulled from a
+   *  sibling registry so that losing one dora doesn't blind the network to
+   *  that dora's whole IP segment. Holds the sibling's userid. An owned
+   *  (authoritative) record never has this. */
+  replicatedFrom?: string;
+  /** ISO 8601 of the last successful sync that re-asserted this replica.
+   *  Replicas older than the TTL are pruned, so when the owning registry
+   *  stops publishing a record it fades out instead of living forever. */
+  replicatedAt?: string;
 }
 
 /** Operation discriminator on the wire. */

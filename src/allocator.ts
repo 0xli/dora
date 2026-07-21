@@ -28,6 +28,14 @@ export class IpAllocator {
     this.end = ipToNum(opts.rangeEnd ?? "10.86.254.254");
   }
 
+  /** True when `ip` falls inside THIS registry's own segment, i.e. we are the
+   *  authority for it. Replication uses this to refuse copies of records we
+   *  own — a sibling's stale view must never shadow our live allocation. */
+  ownsIp(ip: string): boolean {
+    const n = ipToNum(ip);
+    return Number.isFinite(n) && n >= this.start && n <= this.end;
+  }
+
   /** Confirm the caller's requested IP is free AND within THIS registry's own
    *  range; otherwise reject so the client walks to the owning registry.
    *
