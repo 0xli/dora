@@ -194,6 +194,17 @@ export class RegistryServer {
     for (let page = 0; page < 50; page++) {
       const res = await this.request(siblingUserid, { op: "list", offset } as RegistryRequest);
       if (!res || res.op !== "list-ok") return;
+      // Segment uniqueness is the invariant the whole federation rests on;
+      // nothing used to be able to check it. A sibling claiming part of our
+      // band means both of us can allocate the same address to different
+      // nodes, so say so loudly every round until an operator fixes it.
+      if (page === 0 && res.seg && this.allocator.overlaps(res.seg)) {
+        this.log(
+          `replication: SEGMENT OVERLAP with ${siblingUserid.slice(0, 12)} — ` +
+          `it claims ${res.seg}, we claim ${this.allocator.segment()}. ` +
+          `Both may hand out the same virtual IP; fix the --range-start/--range-end split.`
+        );
+      }
       const records = (res.records ?? []) as Array<RegistryRecord & { rep?: number }>;
       for (const r of records) {
         if (r.rep) continue; // the sibling's own replica — not its to vouch for
@@ -287,7 +298,16 @@ export class RegistryServer {
         const offset = Math.max(0, (req as { offset?: number }).offset ?? 0);
         const LIST_PAGE_SIZE = 6;
         const page = all.slice(offset, offset + LIST_PAGE_SIZE);
-        response = { op: "list-ok", records: page as RegistryRecord[], total: all.length };
+        // `seg` advertises the band we claim. A syncing sibling compares it
+        // with its own and screams if they intersect — segment uniqueness was
+        // previously a convention nothing could check, and two registries
+        // allocating from the same band hand two nodes the same virtual IP.
+        response = {
+          op: "list-ok",
+          records: page as RegistryRecord[],
+          total: all.length,
+          seg: this.allocator.segment(),
+        } as RegistryResponse;
         break;
       }
       default:

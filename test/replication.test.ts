@@ -135,3 +135,21 @@ describe("segment authority", () => {
     expect(store.list().filter(vouched).map((r) => r.userid)).toEqual(["mine"]);
   });
 });
+
+describe("segment overlap detection", () => {
+  it("reports its own band and spots a sibling claiming part of it", () => {
+    const beagle = new IpAllocator(store, { rangeStart: "10.86.64.10", rangeEnd: "10.86.127.254" });
+    expect(beagle.segment()).toBe("10.86.64.10-10.86.127.254");
+
+    // The federation's real split — no intersection.
+    expect(beagle.overlaps("10.86.128.10-10.86.191.254")).toBe(false);
+    expect(beagle.overlaps("10.86.1.10-10.86.63.254")).toBe(false);
+
+    // The bug that actually shipped: a dora left on the whole-/16 default
+    // swallows every sibling's band.
+    expect(beagle.overlaps("10.86.1.10-10.86.254.254")).toBe(true);
+    // Partial overlap at either edge counts too.
+    expect(beagle.overlaps("10.86.100.0-10.86.200.0")).toBe(true);
+    expect(beagle.overlaps("10.86.1.10-10.86.64.10")).toBe(true);
+  });
+});

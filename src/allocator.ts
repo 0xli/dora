@@ -28,6 +28,24 @@ export class IpAllocator {
     this.end = ipToNum(opts.rangeEnd ?? "10.86.254.254");
   }
 
+  /** The band we claim, as `<start>-<end>`. Advertised to siblings so an
+   *  overlapping federation is detectable instead of silently handing two
+   *  nodes the same virtual IP. */
+  segment(): string {
+    return `${numToIp(this.start)}-${numToIp(this.end)}`;
+  }
+
+  /** True when the two bands intersect — i.e. both registries would allocate
+   *  from some of the same addresses. */
+  overlaps(segment: string): boolean {
+    const [a, b] = segment.split("-");
+    if (!a || !b) return false;
+    const start = ipToNum(a.trim());
+    const end = ipToNum(b.trim());
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return false;
+    return this.start <= end && start <= this.end;
+  }
+
   /** True when `ip` falls inside THIS registry's own segment, i.e. we are the
    *  authority for it. Replication uses this to refuse copies of records we
    *  own — a sibling's stale view must never shadow our live allocation. */

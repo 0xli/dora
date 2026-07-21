@@ -114,6 +114,11 @@ export interface ListOk {
    *  offset += records.length. Omitted by old servers → client treats
    *  the single reply as the whole roster (back-compat). */
   total?: number;
+  /** The allocation band this registry claims, `<start>-<end>`. Sent so a
+   *  replicating sibling can detect an overlapping federation — two
+   *  registries allocating from the same band hand two nodes the same
+   *  virtual IP. Omitted by old servers. */
+  seg?: string;
 }
 
 export interface ListErr {
