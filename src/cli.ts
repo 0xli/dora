@@ -280,12 +280,21 @@ async function main(): Promise<void> {
   // no path for net_crypto handshake, dora always offline from
   // clients' perspective. Clients in CN/SG can still reach dora
   // via the fallback nodes later in the list.
+  // MUST stay in sync with decentlan's DEFAULT_BOOTSTRAP_NODES (config/loader.ts).
+  // A thin subset made the dora fail to join Carrier from some hosts (the
+  // port-443 node below is the one that punches through restrictive firewalls);
+  // a client and its dora landing on different relay sets = dora "offline" from
+  // the client's view. Keep all 9, same order.
   const DEFAULT_BOOTSTRAPS = [
     { host: "13.58.208.50", port: 33445, pk: "89vny8MrKdDKs7Uta9RdVmspPjnRMdwMmaiEW27pZ7gh" },
     { host: "18.216.102.47", port: 33445, pk: "G5z8MqiNDFTadFUPfMdYsYtkUDbX5mNCMVHMZtsCnFeb" },
+    { host: "18.216.6.197", port: 33445, pk: "H8sqhRrQuJZ6iLtP2wanxt4LzdNrN2NNFnpPdq1uJ9n2" },
     { host: "54.193.141.205", port: 33445, pk: "7TfZWZNV8vnBxxWzJXuvKgX2QyKkLpg2oXx3LQ5tg8LW" },
     { host: "154.64.235.176", port: 33445, pk: "GdNtV2N74fZnLjhH7NhQ18nGdxb1k8jRM9dQaK7WnxmL" },
+    { host: "52.74.215.181", port: 33445, pk: "Xv6d34WaUw9bPn7YihzVAFw7D2igbQJZ3jwmzzfYVFV" },
     { host: "47.100.103.201", port: 33445, pk: "CX1XH419p4xJ5SV4KvDxBeKYSRdMJW9QpdWJY8owUxHd" },
+    { host: "52.83.171.135", port: 443, pk: "5tuHgK1Q4CYf4K5PutsEPK5E3Z7cbtEBdx7LwmdzqXHL" },
+    { host: "52.83.191.228", port: 33445, pk: "3khtxZo89SBScAMaHhTvD68pPHiKxgZT6hTCSZZVgNEm" },
   ];
 
   // Express nodes deliver friend-requests for a recipient that is
