@@ -476,6 +476,11 @@ export class RegistryServer {
 
   /** Per-sibling reachability record — which registries are pulling their
    *  weight and which are dead weight holding a segment hostage. */
+  /** The raw availability record, for the status view. */
+  availabilityLog(): AvailabilityLog | null {
+    return this.availability;
+  }
+
   availabilitySummary(): string[] {
     return this.availability?.summary() ?? [];
   }

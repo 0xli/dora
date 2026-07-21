@@ -18,11 +18,35 @@ Status: **allocation frozen — no new registries for now.**
 
 | Registry | userid | Band | Capacity | Host |
 |---|---|---|---|---|
-| dora-mac | `98rsHv17…` | `10.86.1.10 – 10.86.63.254` | 16,117 | gojipower.xyz |
-| dora-beagle | `AxKFEZFL…` | `10.86.64.10 – 10.86.127.254` | 16,373 | 10.0.0.115 |
-| dora-sh | `GMEMLmCW…` | `10.86.128.10 – 10.86.191.254` | 16,373 | (unconfirmed) |
-| dora-tokyo | `AB6BZfbr…` | `10.86.192.10 – 10.86.254.254` | 16,117 | (unconfirmed) |
+| dora-mac | `98rsHv17…` | `10.86.1.10 – 10.86.63.254` | 16,117 | `linuxuser@gojipower.xyz` |
+| dora-beagle | `AxKFEZFL…` | `10.86.64.10 – 10.86.127.254` | 16,373 | `beagle@10.0.0.115` |
+| dora-sh | `GMEMLmCW…` | `10.86.128.10 – 10.86.191.254` | 16,373 | `root@sh.callt.net` |
+| dora-tokyo | `AB6BZfbr…` | `10.86.192.10 – 10.86.254.254` | 16,117 | `linuxuser@tokyo.fi.chat` |
 | | | **total allocatable** | **64,980** | |
+
+## Deploying a registry
+
+Install from npm — **never hand-copy a `dist/`**. A copied `dist/` has no
+`node_modules` (`ERR_MODULE_NOT_FOUND`), pm2 reports the process "online"
+while it is actually failing on every start, and the host ends up on a build
+no package manager can account for.
+
+```sh
+npm install -g @decentnetwork/dora@<version>
+
+# pm2 must spawn it, not require() it: the CLI is an ES module and
+# `pm2 start <bin>` fails with ERR_REQUIRE_ESM.
+pm2 start "$(npm root -g)/@decentnetwork/dora/dist/cli.js" \
+  --interpreter "$(which node)" --name dora-<name> -- \
+  --data-dir ~/.dora-<name> \
+  --range-start <band start> --range-end <band end> --verbose \
+  --peers <userid>=<address>#<name>,...
+pm2 save
+```
+
+Confirm the new build is really running by looking for the startup lines in
+`~/.pm2/logs/dora-<name>-out.log` — `registry replication: …` and
+`replication: enabled for N sibling(s)` — rather than trusting `pm2 list`.
 
 The /16 holds 65,536 addresses; the 556 outside the bands are `10.86.0.x`,
 each band's first nine hosts, and `10.86.255.x` — reserved, never allocated.

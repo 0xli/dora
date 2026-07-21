@@ -24,6 +24,8 @@ import { Peer } from "@decentnetwork/peer";
 import { RegistryStore } from "./store.js";
 import { IpAllocator } from "./allocator.js";
 import { RegistryServer } from "./server.js";
+import { startStatusServer } from "./http-status.js";
+import { buildStatus } from "./status.js";
 
 /**
  * Scan the OS process table for ANY other node process whose argv
@@ -408,6 +410,32 @@ async function main(): Promise<void> {
     for (const line of server.availabilitySummary()) console.log(`[registry] sibling ${line}`);
   }, 10 * 60_000);
   reportTimer.unref?.();
+
+  // Read-only status UI. The federation was operated blind — which registries
+  // answer, how much of a band is spoken for, whether two identities claim one
+  // address — all of it needed ssh and hand-parsed YAML, which is why an
+  // overlap went unnoticed until nodes collided. Loopback unless --http-host.
+  const httpPort = Number(arg("http-port"));
+  if (Number.isFinite(httpPort) && httpPort > 0) {
+    const startedAt = Date.now();
+    const siblingNames = new Map(siblings.filter((s) => s.name).map((s) => [s.userid, s.name!]));
+    startStatusServer({
+      port: httpPort,
+      host: arg("http-host"),
+      log: (m) => console.log(`[registry] ${m}`),
+      build: () =>
+        buildStatus({
+          store,
+          allocator,
+          availability: server.availabilityLog(),
+          userid: peer.userid(),
+          address: peer.address(),
+          name: arg("name"),
+          startedAt,
+          siblingNames,
+        }),
+    });
+  }
 
   console.log("registry ready — clients should configure registry.userid in decentlan's config.yaml");
 
