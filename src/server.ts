@@ -14,6 +14,7 @@ import { Peer } from "@decentnetwork/peer";
 const PACKET_ID_DL_DORA = 162;
 import type { RegistryStore } from "./store.js";
 import type { IpAllocator } from "./allocator.js";
+import { AvailabilityLog } from "./availability.js";
 import {
   decode,
   encode,
@@ -40,7 +41,9 @@ export interface RegistryServerOptions {
    * rosters makes every dora able to answer for the whole /16, so a
    * single dora going down stops being a network-wide outage.
    */
-  siblings?: Array<{ userid: string; address?: string }>;
+  siblings?: Array<{ userid: string; address?: string; name?: string }>;
+  /** Where to persist the sibling availability log. Omitted = don't track. */
+  availabilityFile?: string;
   /** How often to pull sibling rosters. Default 60s. */
   syncIntervalMs?: number;
   /** Drop replicas not re-asserted within this window. Default 15min —
@@ -56,7 +59,8 @@ export class RegistryServer {
   private verbose: boolean;
   private isRunning = false;
   private kickFriendsTimer: NodeJS.Timeout | null = null;
-  private siblings: Array<{ userid: string; address?: string }>;
+  private siblings: Array<{ userid: string; address?: string; name?: string }>;
+  private availability: AvailabilityLog | null;
   private syncIntervalMs: number;
   private replicaTtlMs: number;
   private syncTimer: NodeJS.Timeout | null = null;
@@ -73,6 +77,7 @@ export class RegistryServer {
     this.siblings = opts.siblings ?? [];
     this.syncIntervalMs = opts.syncIntervalMs ?? 60_000;
     this.replicaTtlMs = opts.replicaTtlMs ?? 15 * 60_000;
+    this.availability = opts.availabilityFile ? new AvailabilityLog(opts.availabilityFile) : null;
   }
 
   start(): void {
@@ -169,9 +174,18 @@ export class RegistryServer {
     const run = (): void => {
       const dropped = this.store.pruneStaleReplicas(this.replicaTtlMs);
       if (dropped) this.log(`replication: pruned ${dropped} stale replica(s)`);
+      // A duplicate address may already be sitting in the roster from before
+      // these guards existed, so check the whole store, not just new arrivals.
+      for (const c of this.store.findIpConflicts()) {
+        this.log(
+          `CONFLICT: ${c.virtualIp} claimed by both ${c.heldByName} (${c.heldBy.slice(0, 12)}) ` +
+          `and ${c.claimedByName} (${c.claimedBy.slice(0, 12)}) — routing to it is ambiguous`
+        );
+      }
       for (const s of this.siblings) {
         this.syncFrom(s.userid).catch((err) => {
           this.log(`replication: sync from ${s.userid.slice(0, 12)} failed: ${err}`);
+          this.noteAvailability(s.userid, false);
         });
       }
     };
@@ -188,12 +202,32 @@ export class RegistryServer {
    *  for. Records it merely replicates itself are skipped, so every record
    *  has exactly one origin and a retired one can actually expire instead of
    *  being kept alive forever by replicas echoing each other. */
+  /** Log a sibling probe and announce state changes — a registry silently
+   *  dropping out is exactly what we need to notice. */
+  private noteAvailability(siblingUserid: string, up: boolean): void {
+    if (!this.availability) return;
+    const name = this.siblings.find((s) => s.userid === siblingUserid)?.name;
+    const change = this.availability.record(siblingUserid, up, name);
+    if (change) {
+      const who = name ?? siblingUserid.slice(0, 12);
+      const ratio = this.availability.uptimeRatio(siblingUserid);
+      const pct = ratio === null ? "n/a" : `${(ratio * 100).toFixed(1)}%`;
+      this.log(`sibling ${who} is ${change.toUpperCase()} (observed uptime ${pct})`);
+    }
+  }
+
   private async syncFrom(siblingUserid: string): Promise<void> {
     const collected: RegistryRecord[] = [];
     let offset = 0;
     for (let page = 0; page < 50; page++) {
       const res = await this.request(siblingUserid, { op: "list", offset } as RegistryRequest);
-      if (!res || res.op !== "list-ok") return;
+      if (!res || res.op !== "list-ok") {
+        // No answer (or an error reply) is the definition of unreachable for
+        // a registry: whatever the cause, clients relying on it are stuck.
+        this.noteAvailability(siblingUserid, false);
+        return;
+      }
+      if (page === 0) this.noteAvailability(siblingUserid, true);
       // Segment uniqueness is the invariant the whole federation rests on;
       // nothing used to be able to check it. A sibling claiming part of our
       // band means both of us can allocate the same address to different
@@ -216,11 +250,17 @@ export class RegistryServer {
     if (collected.length === 0) return;
     // Never accept a copy of anything in our own segment: we are the
     // authority there and a sibling's view may be stale.
-    const merged = this.store.putReplicatedBatch(collected, siblingUserid, (rec) =>
+    const { merged, conflicts } = this.store.putReplicatedBatch(collected, siblingUserid, (rec) =>
       this.allocator.ownsIp(rec.virtualIp)
     );
     if (merged) {
       this.log(`replication: merged ${merged} record(s) from ${siblingUserid.slice(0, 12)}`);
+    }
+    for (const c of conflicts) {
+      this.log(
+        `replication: REFUSED ${c.virtualIp} from ${siblingUserid.slice(0, 12)} — ` +
+        `already held by ${c.heldByName} (${c.heldBy.slice(0, 12)}), claimed by ${c.claimedByName}`
+      );
     }
   }
 
@@ -432,6 +472,12 @@ export class RegistryServer {
       return { op: "lookup-err", reason: `no record for ${req.by}='${req.value}'` };
     }
     return { op: "lookup-ok", record };
+  }
+
+  /** Per-sibling reachability record — which registries are pulling their
+   *  weight and which are dead weight holding a segment hostage. */
+  availabilitySummary(): string[] {
+    return this.availability?.summary() ?? [];
   }
 
   private log(msg: string): void {

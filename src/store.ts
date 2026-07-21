@@ -15,6 +15,18 @@ interface StoredRoster {
   records: RegistryRecord[];
 }
 
+/** Two identities claiming one virtual IP. Routing to it is a coin flip, so
+ *  the duplicate is always refused and surfaced rather than applied. */
+export interface IpConflict {
+  virtualIp: string;
+  heldBy: string;
+  heldByName: string;
+  claimedBy: string;
+  claimedByName: string;
+  /** Sibling userid the losing claim arrived from, or "local". */
+  source: string;
+}
+
 export class RegistryStore {
   private records: Map<string, RegistryRecord> = new Map(); // keyed by userid
   private filePath: string;
@@ -97,9 +109,10 @@ export class RegistryStore {
     records: RegistryRecord[],
     fromUserid: string,
     skip: (rec: RegistryRecord) => boolean = () => false
-  ): number {
+  ): { merged: number; conflicts: IpConflict[] } {
     const now = new Date().toISOString();
-    let changed = 0;
+    let merged = 0;
+    const conflicts: IpConflict[] = [];
     for (const rec of records) {
       if (!rec?.userid || skip(rec)) continue;
       const existing = this.records.get(rec.userid);
@@ -107,15 +120,59 @@ export class RegistryStore {
       if (existing && !existing.replicatedFrom) continue;
       // Only the sibling that supplied a replica may refresh it.
       if (existing?.replicatedFrom && existing.replicatedFrom !== fromUserid) continue;
+      // Two identities on one address is the failure the segment split exists
+      // to prevent; if it still happens (overlapping ranges, a registry
+      // rebuilt from a stale roster) the duplicate must be refused and
+      // reported rather than silently overwriting a live mapping — whoever
+      // routes to that IP would otherwise reach the wrong machine.
+      const holder = this.findByIp(rec.virtualIp);
+      if (holder && holder.userid !== rec.userid) {
+        conflicts.push({
+          virtualIp: rec.virtualIp,
+          heldBy: holder.userid,
+          heldByName: holder.name,
+          claimedBy: rec.userid,
+          claimedByName: rec.name,
+          source: fromUserid,
+        });
+        continue;
+      }
       this.records.set(rec.userid, {
         ...rec,
         replicatedFrom: fromUserid,
         replicatedAt: now,
       });
-      changed++;
+      merged++;
     }
-    if (changed) this.persist();
-    return changed;
+    if (merged) this.persist();
+    return { merged, conflicts };
+  }
+
+  /** Every address currently claimed by more than one identity. Should always
+   *  be empty; a non-empty result means routing to those IPs is ambiguous. */
+  findIpConflicts(): IpConflict[] {
+    const byIp = new Map<string, RegistryRecord[]>();
+    for (const r of this.records.values()) {
+      const list = byIp.get(r.virtualIp);
+      if (list) list.push(r);
+      else byIp.set(r.virtualIp, [r]);
+    }
+    const out: IpConflict[] = [];
+    for (const [ip, list] of byIp) {
+      if (list.length < 2) continue;
+      const [first, ...rest] = list as [RegistryRecord, ...RegistryRecord[]];
+      for (const other of rest) {
+        out.push({
+          virtualIp: ip,
+          heldBy: first.userid,
+          heldByName: first.name,
+          claimedBy: other.userid,
+          claimedByName: other.name,
+          source: other.replicatedFrom ?? "local",
+        });
+      }
+    }
+    return out;
   }
 
   /**

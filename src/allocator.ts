@@ -28,6 +28,11 @@ export class IpAllocator {
     this.end = ipToNum(opts.rangeEnd ?? "10.86.254.254");
   }
 
+  /** How many addresses this registry can hand out in total. */
+  capacity(): number {
+    return this.end - this.start + 1;
+  }
+
   /** The band we claim, as `<start>-<end>`. Advertised to siblings so an
    *  overlapping federation is detectable instead of silently handing two
    *  nodes the same virtual IP. */

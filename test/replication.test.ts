@@ -32,7 +32,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("replica merge", () => {
   it("adds a sibling's records and marks their origin", () => {
-    const n = store.putReplicatedBatch([rec("u1", "peer-a", "10.86.70.5")], "sibA");
+    const { merged: n } = store.putReplicatedBatch([rec("u1", "peer-a", "10.86.70.5")], "sibA");
     expect(n).toBe(1);
     const got = store.get("u1")!;
     expect(got.virtualIp).toBe("10.86.70.5");
@@ -43,7 +43,7 @@ describe("replica merge", () => {
   it("never lets a replica overwrite a record we own", () => {
     // We are authoritative for u1 at .17 — a sibling's stale .99 must lose.
     store.put(rec("u1", "callpass", "10.86.1.17"));
-    const n = store.putReplicatedBatch([rec("u1", "callpass", "10.86.1.99")], "sibA");
+    const { merged: n } = store.putReplicatedBatch([rec("u1", "callpass", "10.86.1.99")], "sibA");
     expect(n).toBe(0);
     const got = store.get("u1")!;
     expect(got.virtualIp).toBe("10.86.1.17");
@@ -52,7 +52,7 @@ describe("replica merge", () => {
 
   it("skips records in our own segment via the skip predicate", () => {
     const alloc = new IpAllocator(store, { rangeStart: "10.86.1.10", rangeEnd: "10.86.63.254" });
-    const n = store.putReplicatedBatch(
+    const { merged: n } = store.putReplicatedBatch(
       [rec("mine", "in-my-range", "10.86.1.20"), rec("theirs", "not-mine", "10.86.70.5")],
       "sibA",
       (r) => alloc.ownsIp(r.virtualIp)
@@ -66,11 +66,11 @@ describe("replica merge", () => {
     store.putReplicatedBatch([rec("u1", "peer-a", "10.86.70.5")], "sibA");
     // A different sibling must not hijack it — otherwise two siblings with
     // divergent views would flap the record on every sync round.
-    const n = store.putReplicatedBatch([rec("u1", "peer-a", "10.86.80.9")], "sibB");
+    const { merged: n } = store.putReplicatedBatch([rec("u1", "peer-a", "10.86.80.9")], "sibB");
     expect(n).toBe(0);
     expect(store.get("u1")!.virtualIp).toBe("10.86.70.5");
     // …but its own origin can.
-    expect(store.putReplicatedBatch([rec("u1", "peer-a", "10.86.70.6")], "sibA")).toBe(1);
+    expect(store.putReplicatedBatch([rec("u1", "peer-a", "10.86.70.6")], "sibA").merged).toBe(1);
     expect(store.get("u1")!.virtualIp).toBe("10.86.70.6");
   });
 });

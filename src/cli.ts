@@ -365,8 +365,14 @@ async function main(): Promise<void> {
     .map((s) => s.trim())
     .filter(Boolean)
     .map((entry) => {
-      const [userid, address] = entry.split("=");
-      return { userid: userid!.trim(), address: address?.trim() || undefined };
+      // <userid>[=<address>][#<name>] — the name is only a log label.
+      const [head, name] = entry.split("#");
+      const [userid, address] = head!.split("=");
+      return {
+        userid: userid!.trim(),
+        address: address?.trim() || undefined,
+        name: name?.trim() || undefined,
+      };
     })
     .filter((s) => s.userid.length > 0);
   if (siblings.length > 0) {
@@ -379,10 +385,29 @@ async function main(): Promise<void> {
     allocator,
     verbose: flag("verbose"),
     siblings,
+    // A registry that is usually unreachable still owns a segment nobody else
+    // can allocate from, so its downtime is the network's. Keep the record.
+    availabilityFile: resolve(dataDir, "sibling-availability.yaml"),
     syncIntervalMs: Number(arg("sync-interval-ms")) || undefined,
     replicaTtlMs: Number(arg("replica-ttl-ms")) || undefined,
   });
   server.start();
+
+  // Periodic capacity + health line: how much of our segment is spoken for,
+  // any ambiguous address, and which siblings are actually answering.
+  const reportTimer = setInterval(() => {
+    const owned = store.listOwned().length;
+    const cap = allocator.capacity();
+    console.log(
+      `[registry] segment ${allocator.segment()} — ${owned}/${cap} used ` +
+      `(${((owned / cap) * 100).toFixed(2)}%), ${store.list().length - owned} replicated`
+    );
+    for (const c of store.findIpConflicts()) {
+      console.log(`[registry] CONFLICT ${c.virtualIp}: ${c.heldByName} vs ${c.claimedByName}`);
+    }
+    for (const line of server.availabilitySummary()) console.log(`[registry] sibling ${line}`);
+  }, 10 * 60_000);
+  reportTimer.unref?.();
 
   console.log("registry ready — clients should configure registry.userid in decentlan's config.yaml");
 
