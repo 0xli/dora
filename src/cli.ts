@@ -263,6 +263,25 @@ async function main(): Promise<void> {
   const rosterFile = resolve(dataDir, "roster.yaml");
   const keyFile = resolve(dataDir, "keypair.json");
 
+  // A dora's segment IS its authority. Defaulting to the whole /16 meant a
+  // dora started without flags silently claimed every other dora's range and
+  // handed out IPs inside it — the collision that put nodes in two registries'
+  // segments at once. Federated deployments must say what they own.
+  if (!arg("range-start") || !arg("range-end")) {
+    console.error(
+      "dora: --range-start and --range-end are required.\n" +
+      "  A registry is authoritative only for the segment it declares; without one it\n" +
+      "  would claim the whole 10.86.0.0/16 and collide with every sibling registry.\n" +
+      "  Public federation segments:\n" +
+      "    dora-beagle  --range-start 10.86.64.10  --range-end 10.86.127.254\n" +
+      "    dora-sh      --range-start 10.86.128.10 --range-end 10.86.191.254\n" +
+      "    dora-tokyo   --range-start 10.86.192.10 --range-end 10.86.254.254\n" +
+      "  A private registry should pick a block no public dora owns (e.g. 10.86.1.10–63.254)\n" +
+      "  and keep it non-overlapping."
+    );
+    process.exit(2);
+  }
+
   const store = new RegistryStore(rosterFile);
   const allocator = new IpAllocator(store, {
     rangeStart: arg("range-start"),

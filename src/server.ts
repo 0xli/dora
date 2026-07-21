@@ -260,15 +260,22 @@ export class RegistryServer {
         // Trim records to the fields the client actually consumes
         // (userid, name, virtualIp, address). registeredAt and
         // lastSeenAt save ~80 bytes per record.
-        // `rep: 1` flags a record we only hold a replica of. Clients ignore
-        // the extra field; a syncing sibling uses it to skip second-hand
-        // records so each record keeps exactly one authoritative origin.
+        // `rep: 1` marks a record we do NOT vouch for, so a syncing sibling
+        // skips it and every record keeps exactly one authoritative origin.
+        // Two cases qualify:
+        //  - a replica we pulled from a sibling (second-hand), and
+        //  - a record outside our own segment. Authority IS the segment: a
+        //    dora that once ran with the default whole-/16 range still holds
+        //    records in other doras' segments, and without this it would
+        //    replicate them out as if it owned them and could beat the real
+        //    segment owner to becoming their origin.
+        // Clients ignore the extra field and still see the full roster.
         const all = this.store.list().map((r) => ({
           userid: r.userid,
           name: r.name,
           virtualIp: r.virtualIp,
           address: r.address,
-          ...(r.replicatedFrom ? { rep: 1 } : {}),
+          ...(r.replicatedFrom || !this.allocator.ownsIp(r.virtualIp) ? { rep: 1 } : {}),
         }));
         // Paginate: even trimmed, a roster of >~8 peers blows past
         // Carrier's ~1372-byte text-message limit, so the whole reply

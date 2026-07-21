@@ -117,3 +117,21 @@ describe("authority split", () => {
     expect(alloc.ownsIp("10.86.200.1")).toBe(false);
   });
 });
+
+describe("segment authority", () => {
+  it("a dora only vouches for records inside its own segment", () => {
+    // Mirrors the real roster: a dora that once ran with the default
+    // whole-/16 range still holds records in other doras' segments.
+    // It must not offer those to siblings as its own, or it could beat the
+    // true segment owner to becoming their origin.
+    const alloc = new IpAllocator(store, { rangeStart: "10.86.1.10", rangeEnd: "10.86.63.254" });
+    store.put(rec("mine", "callpass", "10.86.1.17"));
+    store.put(rec("legacy", "snoopy", "10.86.156.164")); // owned flag, wrong segment
+    store.putReplicatedBatch([rec("copy", "gfax", "10.86.134.139")], "sibA");
+
+    const vouched = (r: RegistryRecord): boolean =>
+      !r.replicatedFrom && alloc.ownsIp(r.virtualIp);
+
+    expect(store.list().filter(vouched).map((r) => r.userid)).toEqual(["mine"]);
+  });
+});
